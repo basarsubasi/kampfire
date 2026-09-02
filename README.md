@@ -220,8 +220,41 @@ campfire rm $(campfire ps -q)
 
 ---
 
+## ⚖️ Limiting Sandboxes per User (ResourceQuotas)
+
+Cluster administrators can limit how many concurrent sandboxes or pods a user can run using standard Kubernetes `ResourceQuota` objects applied to their namespace:
+
+```yaml
+# sandbox-quota.yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: sandbox-quota
+  namespace: team-alice
+spec:
+  hard:
+    # Limit max number of concurrent sandboxes to 3
+    count/sandboxes.agents.x-k8s.io: "3"
+    # Optional: limit max total pods
+    count/pods: "3"
+```
+
+Apply with:
+```bash
+kubectl apply -f sandbox-quota.yaml
+```
+
+When a user reaches their limit, Campfire catches the quota rejection from the Kubernetes API and provides clear, actionable feedback:
+```
+✗ sandbox limit reached in namespace team-alice (ResourceQuota exceeded)
+  Use 'campfire ps' and 'campfire rm' to free up capacity
+```
+
+---
+
 ## 🛠️ Global Flags
 
 * `-n, --namespace string`: Override target Kubernetes namespace.
 * `--config string`: Path to custom Campfire configuration file (defaults to `~/.config/campfire/config.json`).
 * `-v, --verbose`: Enable verbose debug output.
+

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"campfire/pkg/sandbox"
@@ -72,6 +73,9 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 		// 1. Create Sandbox CR
 		info, err := sandbox.Create(ctx, client, name, runImage, command)
 		if err != nil {
+			if strings.Contains(err.Error(), "exceeded quota") {
+				return fmt.Errorf("sandbox limit reached in namespace %s (ResourceQuota exceeded)\n  Use 'campfire ps' and 'campfire rm' to free up capacity", client.Namespace)
+			}
 			return fmt.Errorf("failed to create sandbox: %w", err)
 		}
 
