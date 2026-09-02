@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	cfgPath string
-	verbose bool
+	cfgPath       string
+	namespaceFlag string
+	verbose       bool
 
 	loadedConfig *config.Config
 	k8sClient    *k8s.Client
@@ -35,12 +36,16 @@ realistic interactive PTY terminal sessions, file transfer, and one-command VS C
 func init() {
 	defaultCfg, _ := config.DefaultConfigPath()
 	RootCmd.PersistentFlags().StringVar(&cfgPath, "config", defaultCfg, "path to campfire config file")
+	RootCmd.PersistentFlags().StringVarP(&namespaceFlag, "namespace", "n", "", "Kubernetes namespace (defaults to config or active context)")
 	RootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose debug logging")
 }
 
 // GetClient initializes and returns the Kubernetes client and config.
 func GetClient() (*k8s.Client, *config.Config, error) {
 	if k8sClient != nil {
+		if namespaceFlag != "" {
+			k8sClient.Namespace = namespaceFlag
+		}
 		return k8sClient, loadedConfig, nil
 	}
 
@@ -53,6 +58,9 @@ func GetClient() (*k8s.Client, *config.Config, error) {
 	client, err := k8s.NewClient(cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize kubernetes client (config at %s): %w", path, err)
+	}
+	if namespaceFlag != "" {
+		client.Namespace = namespaceFlag
 	}
 	k8sClient = client
 

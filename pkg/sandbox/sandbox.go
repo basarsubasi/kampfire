@@ -68,6 +68,10 @@ func Create(ctx context.Context, client *k8s.Client, name, image string, command
 		cmdSlice[i] = c
 	}
 
+	labels := map[string]interface{}{
+		"agents.x-k8s.io/created-by": "campfire",
+	}
+
 	obj := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "agents.x-k8s.io/v1beta1",
@@ -75,12 +79,10 @@ func Create(ctx context.Context, client *k8s.Client, name, image string, command
 			"metadata": map[string]interface{}{
 				"name":      name,
 				"namespace": client.Namespace,
-				"labels": map[string]interface{}{
-					"agents.x-k8s.io/created-by": "campfire",
-				},
+				"labels":    labels,
 			},
 			"spec": map[string]interface{}{
-				"operatingMode": "Running",
+				"operatingMode":  "Running",
 				"shutdownPolicy": "Retain",
 				"podTemplate": map[string]interface{}{
 					"spec": map[string]interface{}{
@@ -152,7 +154,7 @@ func WaitReady(ctx context.Context, client *k8s.Client, name string, onTick func
 	}
 }
 
-// List returns active sandboxes in the current namespace.
+// List returns sandboxes in the current namespace.
 func List(ctx context.Context, client *k8s.Client, showAll bool) ([]Info, error) {
 	list, err := client.Dynamic.Resource(SandboxGVR).Namespace(client.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {

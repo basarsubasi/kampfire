@@ -11,12 +11,12 @@ import (
 
 // Config represents the Campfire user configuration.
 type Config struct {
-	Server                 string `json:"server,omitempty"`
-	Token                  string `json:"token,omitempty"`
-	Namespace              string `json:"namespace,omitempty"`
-	CAData                 string `json:"ca_data,omitempty"`
-	InsecureSkipTLSVerify  bool   `json:"insecure_skip_tls_verify,omitempty"`
-	KubeconfigPath         string `json:"kubeconfig_path,omitempty"`
+	Server                string `json:"server,omitempty"`
+	Token                 string `json:"token,omitempty"`
+	Namespace             string `json:"namespace,omitempty"`
+	CAData                string `json:"ca_data,omitempty"`
+	InsecureSkipTLSVerify bool   `json:"insecure_skip_tls_verify,omitempty"`
+	KubeconfigPath        string `json:"kubeconfig_path,omitempty"`
 }
 
 // DefaultConfigPath returns ~/.config/campfire/config.json.

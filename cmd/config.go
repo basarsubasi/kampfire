@@ -66,15 +66,15 @@ var configSetCmd = &cobra.Command{
 		}
 
 		updated := false
-		if setNamespace != "" {
+		if cmd.Flags().Changed("namespace") {
 			cfg.Namespace = setNamespace
 			updated = true
 		}
-		if setToken != "" {
+		if cmd.Flags().Changed("token") {
 			cfg.Token = strings.TrimSpace(setToken)
 			updated = true
 		}
-		if setServer != "" {
+		if cmd.Flags().Changed("server") {
 			cfg.Server = strings.TrimSpace(setServer)
 			updated = true
 		}
