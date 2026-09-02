@@ -19,8 +19,8 @@ import (
 
 const remotePort = 13337
 
-// OpenVSCode handles auto-installing code-server, launching it, port-forwarding, and opening the browser.
-func OpenVSCode(ctx context.Context, client *k8s.Client, podName string) error {
+// OpenVSCode handles auto-installing code-server, launching it, port-forwarding, and opening desktop VS Code.
+func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInBrowser bool) error {
 	ui.Info("Checking VS Code server in sandbox %s...", ui.TitleStyle.Render(podName))
 
 	// 1. Check if code-server is installed
@@ -80,10 +80,17 @@ fi
 
 	select {
 	case <-readyCh:
-		url := fmt.Sprintf("http://localhost:%d", localPort)
-		ui.Success("VS Code IDE is live at: %s", ui.TitleStyle.Render(url))
-		ui.Info("Opening in default browser... (Press Ctrl+C to disconnect)")
-		_ = openBrowser(url)
+		webURL := fmt.Sprintf("http://localhost:%d", localPort)
+		ui.Success("VS Code server tunnel established on port %d", localPort)
+		if openInBrowser {
+			ui.Info("Opening in default browser (%s)...", webURL)
+			_ = openBrowser(webURL)
+		} else {
+			ui.Info("Launching desktop VS Code...")
+			ui.Info("Web fallback URL: %s", ui.TitleStyle.Render(webURL))
+			_ = openDesktopVSCode(localPort)
+		}
+		ui.Info("Press Ctrl+C to disconnect the tunnel.")
 	case err := <-errCh:
 		return fmt.Errorf("port-forward failed: %w", err)
 	case <-time.After(15 * time.Second):
@@ -116,6 +123,35 @@ func getFreePort() (int, error) {
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+func openDesktopVSCode(localPort int) error {
+	webURL := fmt.Sprintf("http://localhost:%d", localPort)
+	vscodeURI := fmt.Sprintf("vscode://ms-vscode.remote-server/open?url=%s", webURL)
+
+	// 1. If "code" CLI is in PATH, try launching directly
+	if codePath, err := exec.LookPath("code"); err == nil {
+		if err := exec.Command(codePath, "--open-url", vscodeURI).Start(); err == nil {
+			return nil
+		}
+	}
+
+	// 2. Open via OS protocol handler
+	var cmd string
+	var args []string
+	switch runtime.GOOS {
+	case "windows":
+		cmd = "rundll32"
+		args = []string{"url.dll,FileProtocolHandler", vscodeURI}
+	case "darwin":
+		cmd = "open"
+		args = []string{vscodeURI}
+	default:
+		cmd = "xdg-open"
+		args = []string{vscodeURI}
+	}
+
+	return exec.Command(cmd, args...).Start()
 }
 
 func openBrowser(url string) error {

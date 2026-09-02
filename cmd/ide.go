@@ -14,14 +14,21 @@ var ideCmd = &cobra.Command{
 	Short: "Launch development environments connected to your sandboxes",
 }
 
+var (
+	ideBrowser bool
+)
+
 var vscodeCmd = &cobra.Command{
-	Use:   "vscode SANDBOX_ID",
-	Short: "Auto-install VS Code server inside sandbox and open in browser",
+	Use:   "vscode [flags] SANDBOX_ID",
+	Short: "Auto-install VS Code server inside sandbox and open in desktop VS Code",
 	Long: `Checks if code-server is installed inside the sandbox container.
 If missing, automatically installs standalone code-server, launches the daemon,
-tunnels the port securely via Kubernetes SPDY port-forwarding, and launches your browser.`,
-	Example: `  # Launch VS Code in browser connected to my-sandbox
-  campfire ide vscode my-sandbox`,
+tunnels the port securely via Kubernetes SPDY port-forwarding, and opens desktop VS Code.`,
+	Example: `  # Open sandbox in desktop VS Code
+  campfire ide vscode my-sandbox
+
+  # Open sandbox in web browser instead
+  campfire ide vscode my-sandbox --browser`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
@@ -35,11 +42,13 @@ tunnels the port securely via Kubernetes SPDY port-forwarding, and launches your
 		if sb, err := sandbox.Find(ctx, client, target); err == nil {
 			sandboxName = sb.Name
 		}
-		return ide.OpenVSCode(ctx, client, sandboxName)
+		return ide.OpenVSCode(ctx, client, sandboxName, ideBrowser)
 	},
 }
 
 func init() {
+	vscodeCmd.Flags().BoolVar(&ideBrowser, "browser", false, "Open in web browser instead of desktop VS Code")
+
 	ideCmd.AddCommand(vscodeCmd)
 	RootCmd.AddCommand(ideCmd)
 }
