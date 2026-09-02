@@ -230,7 +230,110 @@ campfire rm $(campfire ps -q)
 
 * **Zero Custom Daemons**: Campfire is a pure client tool that talks directly to the standard Kubernetes API server.
 * **Hard RBAC Enforcement**: Any request attempting to access or modify sandboxes outside the tenant's bound namespace is immediately rejected with a standard `403 Forbidden` by the Kubernetes API server.
-* **No Shared Secrets**: Users only possess their scoped ServiceAccount or OIDC token.
+* **No Shared Secrets**: Users only possess their scoped ServiceAccount token.
+
+---
+
+### 🔑 Generating Tenant-Scoped Kubeconfigs
+
+Administrators can generate a single, self-contained kubeconfig file for each tenant. This file contains only public cluster connection details and the tenant's scoped token—with zero cluster-admin permissions:
+
+```bash
+#!/usr/bin/env bash
+# generate-tenant-config.sh <namespace> <username> [duration]
+TENANT_NS="${1:-team-alice}"
+TENANT_USER="${2:-alice}"
+DURATION="${3:-720h}" # Defaults to 30 days
+
+# 1. Grab public cluster endpoint and CA cert from active cluster
+CLUSTER_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+CLUSTER_CA=$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
+
+# 2. Mint tenant token
+TOKEN=$(kubectl create token "${TENANT_USER}" -n "${TENANT_NS}" --duration="${DURATION}")
+
+# 3. Generate ready-to-use tenant kubeconfig
+OUTPUT_FILE="campfire-${TENANT_USER}.yaml"
+cat <<EOF > "${OUTPUT_FILE}"
+apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    certificate-authority-data: ${CLUSTER_CA}
+    server: ${CLUSTER_SERVER}
+  name: campfire-cluster
+contexts:
+- context:
+    cluster: campfire-cluster
+    namespace: ${TENANT_NS}
+    user: ${TENANT_USER}
+  name: default
+current-context: default
+users:
+- name: ${TENANT_USER}
+  user:
+    token: ${TOKEN}
+EOF
+
+echo "✓ Generated tenant config: ${OUTPUT_FILE}"
+echo "Distribute this file to ${TENANT_USER}. They can use it immediately with:"
+echo "  export KUBECONFIG=~/${OUTPUT_FILE}"
+echo "  campfire ps"
+```
+
+---
+
+### 🛡️ Enforcing Hardware MicroVM Isolation with Kata Containers (`kata-fc`)
+
+To protect the host kernel from untrusted user code or AI agents, sandboxes should run inside lightweight hardware-isolated MicroVMs powered by **Kata Containers with Firecracker (`kata-fc`)**.
+
+Campfire intentionally keeps the developer CLI pure and simple (`campfire run` does not require users to pass `--runtime-class`). Instead, **Kubernetes enforces `kata-fc` cluster-side** so that *all* sandboxes automatically run inside isolated Firecracker MicroVMs.
+
+#### Step 1: Register the `kata-fc` RuntimeClass
+Apply the `kata-fc` RuntimeClass to your cluster:
+
+```yaml
+# runtimeclass-kata-fc.yaml
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: kata-fc
+handler: kata-fc
+```
+
+```bash
+kubectl apply -f runtimeclass-kata-fc.yaml
+```
+
+#### Step 2: Enforce `kata-fc` Cluster-Side
+You can enforce `kata-fc` across all sandboxes using a standard Kubernetes mutating policy (e.g. via **Kyverno** or a **MutatingAdmissionWebhook**):
+
+```yaml
+# mutate-kata-fc.yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: enforce-kata-fc-sandboxes
+spec:
+  rules:
+  - name: set-kata-fc-runtime
+    match:
+      resources:
+        kinds:
+        - Pod
+        selector:
+          matchLabels:
+            agents.x-k8s.io/created-by: campfire
+    mutate:
+      patchStrategicMerge:
+        spec:
+          +(runtimeClassName): kata-fc
+```
+
+#### Why cluster-side enforcement is superior:
+1. **Zero Developer Friction**: Developers run standard `campfire run --image python:3.12` without needing to remember infrastructure flags.
+2. **Immutable Security Guarantee**: Individual developers cannot disable or bypass the VM boundary. Every sandbox is unconditionally jailed inside a dedicated Firecracker MicroVM hypervisor.
+3. **Defense-in-Depth**: Even if a sandbox container suffers a root breakout or kernel exploit, it is trapped inside a dedicated guest kernel and virtual machine.
 
 ---
 
