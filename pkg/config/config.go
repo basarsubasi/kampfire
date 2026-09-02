@@ -45,24 +45,44 @@ func Load(customPath string) (*Config, string, error) {
 		if err := json.Unmarshal(data, &cfg); err != nil {
 			return nil, path, fmt.Errorf("failed to parse config at %s: %w", path, err)
 		}
-		if cfg.Namespace == "" {
-			cfg.Namespace = "default"
-		}
 		return &cfg, path, nil
 	}
 
 	// Config file does not exist yet. Seed from kubeconfig.
 	cfg, err := SeedFromKubeconfig()
 	if err != nil {
-		// Fallback minimal config
-		cfg = &Config{
-			Namespace: "default",
-		}
+		cfg = &Config{}
 	}
 
 	// Try saving seeded config to disk
 	_ = Save(path, cfg)
 	return cfg, path, nil
+}
+
+// ResolveNamespace resolves the active namespace following kubectl precedence:
+// 1. Explicit CLI flag override (-n / --namespace)
+// 2. Explicit namespace set in config.json (for token-based configurations)
+// 3. Dynamic active context namespace from kubeconfig (how kubectl does it)
+// 4. In-cluster service account namespace (if running inside a pod)
+// 5. Fallback: "default"
+func ResolveNamespace(cliFlag string, cfg *Config) string {
+	if cliFlag != "" {
+		return cliFlag
+	}
+	if cfg != nil && cfg.Namespace != "" {
+		return cfg.Namespace
+	}
+
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if cfg != nil && cfg.KubeconfigPath != "" {
+		loadingRules.ExplicitPath = cfg.KubeconfigPath
+	}
+	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
+	if activeNS, _, err := clientConfig.Namespace(); err == nil && activeNS != "" {
+		return activeNS
+	}
+
+	return "default"
 }
 
 // Save writes the configuration to disk.
@@ -91,7 +111,7 @@ func SeedFromKubeconfig() (*Config, error) {
 	currentContextName := kubeConfig.CurrentContext
 	currentContext, exists := kubeConfig.Contexts[currentContextName]
 
-	ns := "default"
+	var ns string
 	if exists && currentContext.Namespace != "" {
 		ns = currentContext.Namespace
 	}

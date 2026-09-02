@@ -24,8 +24,8 @@ type Client struct {
 	Namespace  string
 }
 
-// NewClient creates a new Client based on the Campfire configuration.
-func NewClient(cfg *config.Config) (*Client, error) {
+// NewClient creates a new Client based on the Campfire configuration and optional CLI namespace override.
+func NewClient(cfg *config.Config, namespaceOverride string) (*Client, error) {
 	var restConfig *rest.Config
 	var err error
 
@@ -65,10 +65,8 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		return nil, fmt.Errorf("failed to initialize dynamic client: %w", err)
 	}
 
-	ns := cfg.Namespace
-	if ns == "" {
-		ns = "default"
-	}
+	// Resolve namespace with proper precedence (CLI -n > config.json > active kubeconfig context > "default")
+	ns := config.ResolveNamespace(namespaceOverride, cfg)
 
 	return &Client{
 		RestConfig: restConfig,

@@ -55,12 +55,9 @@ func GetClient() (*k8s.Client, *config.Config, error) {
 	}
 	loadedConfig = cfg
 
-	client, err := k8s.NewClient(cfg)
+	client, err := k8s.NewClient(cfg, namespaceFlag)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize kubernetes client (config at %s): %w", path, err)
-	}
-	if namespaceFlag != "" {
-		client.Namespace = namespaceFlag
 	}
 	k8sClient = client
 

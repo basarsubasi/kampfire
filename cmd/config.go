@@ -40,8 +40,16 @@ var configCmd = &cobra.Command{
 			serverDisplay = "(from kubeconfig)"
 		}
 
+		activeNS := config.ResolveNamespace(namespaceFlag, cfg)
+		source := "(from context)"
+		if namespaceFlag != "" {
+			source = "(from -n flag)"
+		} else if cfg.Namespace != "" {
+			source = "(from config)"
+		}
+
 		ui.Info("Campfire Configuration (%s):", path)
-		fmt.Printf("  • %-15s: %s\n", "Namespace", ui.TitleStyle.Render(cfg.Namespace))
+		fmt.Printf("  • %-15s: %s %s\n", "Namespace", ui.TitleStyle.Render(activeNS), ui.MutedStyle.Render(source))
 		fmt.Printf("  • %-15s: %s\n", "API Server", serverDisplay)
 		fmt.Printf("  • %-15s: %s\n", "API Token", tokenDisplay)
 		if cfg.KubeconfigPath != "" {
