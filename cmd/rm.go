@@ -31,12 +31,16 @@ var rmCmd = &cobra.Command{
 		}
 
 		var hasError bool
-		for _, name := range args {
+		for _, target := range args {
+			name := target
+			if sb, err := sandbox.Find(ctx, client, target); err == nil {
+				name = sb.Name
+			}
 			if err := sandbox.Delete(ctx, client, name); err != nil {
-				ui.Error("Failed to remove sandbox %s: %s", name, err)
+				ui.Error("Failed to remove sandbox %s: %s", target, err)
 				hasError = true
 			} else {
-				fmt.Println(name)
+				fmt.Println(target)
 			}
 		}
 

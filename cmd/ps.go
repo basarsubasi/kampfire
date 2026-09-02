@@ -3,8 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
-	"text/tabwriter"
 
 	"campfire/pkg/sandbox"
 	"campfire/pkg/ui"
@@ -44,7 +42,7 @@ var psCmd = &cobra.Command{
 
 		if psQuiet {
 			for _, sb := range sandboxes {
-				fmt.Println(sb.Name)
+				fmt.Println(sb.ID)
 			}
 			return nil
 		}
@@ -54,28 +52,26 @@ var psCmd = &cobra.Command{
 			return nil
 		}
 
-		w := tabwriter.NewWriter(os.Stdout, 0, 8, 3, ' ', 0)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			ui.HeaderStyle.Render("NAME / ID"),
-			ui.HeaderStyle.Render("IMAGE"),
-			ui.HeaderStyle.Render("STATUS"),
-			ui.HeaderStyle.Render("AGE"),
-			ui.HeaderStyle.Render("IP"))
+		headers := []string{"SANDBOX ID", "NAME", "IMAGE", "STATUS", "AGE", "IP"}
+		var rows [][]string
 
 		for _, sb := range sandboxes {
 			ip := sb.PodIP
 			if ip == "" {
 				ip = "-"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			rows = append(rows, []string{
+				sb.ID,
 				ui.TitleStyle.Render(sb.Name),
 				sb.Image,
 				ui.StatusBadge(sb.Status),
 				sb.Age,
-				ui.MutedStyle.Render(ip))
+				ui.MutedStyle.Render(ip),
+			})
 		}
 
-		return w.Flush()
+		ui.PrintTable(headers, rows)
+		return nil
 	},
 }
 

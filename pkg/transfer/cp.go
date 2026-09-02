@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"campfire/pkg/k8s"
+	"campfire/pkg/sandbox"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -30,13 +31,21 @@ func Copy(ctx context.Context, client *k8s.Client, src, dest string) error {
 
 	if srcIsRemote {
 		parts := strings.SplitN(src, ":", 2)
-		sandboxID, remotePath := parts[0], parts[1]
-		return copyFromSandbox(ctx, client, sandboxID, remotePath, dest)
+		target, remotePath := parts[0], parts[1]
+		podName := target
+		if sb, err := sandbox.Find(ctx, client, target); err == nil {
+			podName = sb.Name
+		}
+		return copyFromSandbox(ctx, client, podName, remotePath, dest)
 	}
 
 	parts := strings.SplitN(dest, ":", 2)
-	sandboxID, remotePath := parts[0], parts[1]
-	return copyToSandbox(ctx, client, src, sandboxID, remotePath)
+	target, remotePath := parts[0], parts[1]
+	podName := target
+	if sb, err := sandbox.Find(ctx, client, target); err == nil {
+		podName = sb.Name
+	}
+	return copyToSandbox(ctx, client, src, podName, remotePath)
 }
 
 func copyToSandbox(ctx context.Context, client *k8s.Client, localPath, podName, remotePath string) error {
@@ -203,7 +212,13 @@ func copyFromSandbox(ctx context.Context, client *k8s.Client, podName, remotePat
 		})
 	}()
 
+	isLocalDir := false
+	if fi, err := os.Stat(localPath); err == nil && fi.IsDir() {
+		isLocalDir = true
+	}
+
 	tr := tar.NewReader(pr)
+	first := true
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -213,7 +228,13 @@ func copyFromSandbox(ctx context.Context, client *k8s.Client, podName, remotePat
 			return err
 		}
 
-		target := filepath.Join(localPath, header.Name)
+		target := localPath
+		if isLocalDir {
+			target = filepath.Join(localPath, filepath.Base(header.Name))
+		} else if !first {
+			target = filepath.Join(localPath, header.Name)
+		}
+		first = false
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0755); err != nil {

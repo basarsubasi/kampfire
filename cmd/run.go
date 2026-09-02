@@ -128,6 +128,7 @@ func stringsRepeat(s string, count int) string {
 }
 
 func init() {
+	runCmd.Flags().SetInterspersed(false)
 	runCmd.Flags().StringVar(&runImage, "image", "", "Container image (e.g. alpine, python:3.12)")
 	runCmd.Flags().StringVar(&runName, "name", "", "Custom name for the sandbox")
 	runCmd.Flags().BoolVarP(&runInteractive, "interactive", "i", false, "Keep STDIN open")

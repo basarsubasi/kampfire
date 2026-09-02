@@ -23,6 +23,7 @@ var SandboxGVR = schema.GroupVersionResource{
 
 // Info holds parsed information about a Sandbox.
 type Info struct {
+	ID        string
 	Name      string
 	Image     string
 	Status    string
@@ -104,7 +105,17 @@ func Create(ctx context.Context, client *k8s.Client, name, image string, command
 		return nil, fmt.Errorf("failed to create sandbox: %w", err)
 	}
 
+	uid := string(res.GetUID())
+	shortID := strings.ReplaceAll(uid, "-", "")
+	if len(shortID) > 12 {
+		shortID = shortID[:12]
+	}
+	if shortID == "" {
+		shortID = res.GetName()
+	}
+
 	return &Info{
+		ID:        shortID,
 		Name:      res.GetName(),
 		Image:     image,
 		Status:    "Starting",
@@ -178,10 +189,42 @@ func Delete(ctx context.Context, client *k8s.Client, name string) error {
 	return client.Dynamic.Resource(SandboxGVR).Namespace(client.Namespace).Delete(ctx, name, metav1.DeleteOptions{})
 }
 
+// Find searches for a Sandbox by exact name, ID, or ID prefix.
+func Find(ctx context.Context, client *k8s.Client, nameOrID string) (*Info, error) {
+	// 1. Try exact name get first
+	obj, err := client.Dynamic.Resource(SandboxGVR).Namespace(client.Namespace).Get(ctx, nameOrID, metav1.GetOptions{})
+	if err == nil {
+		return extractInfo(obj), nil
+	}
+
+	// 2. Search list for matching name, ID, or ID prefix
+	sandboxes, err := List(ctx, client, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search sandboxes: %w", err)
+	}
+
+	for _, sb := range sandboxes {
+		if sb.Name == nameOrID || sb.ID == nameOrID || strings.HasPrefix(sb.ID, nameOrID) {
+			return &sb, nil
+		}
+	}
+
+	return nil, fmt.Errorf("sandbox '%s' not found in namespace %s", nameOrID, client.Namespace)
+}
+
 func extractInfo(obj *unstructured.Unstructured) *Info {
 	name := obj.GetName()
 	creationTime := obj.GetCreationTimestamp().Time
 	age := formatAge(time.Since(creationTime))
+
+	uid := string(obj.GetUID())
+	shortID := strings.ReplaceAll(uid, "-", "")
+	if len(shortID) > 12 {
+		shortID = shortID[:12]
+	}
+	if shortID == "" {
+		shortID = name
+	}
 
 	// Get image
 	var image string
@@ -221,6 +264,7 @@ func extractInfo(obj *unstructured.Unstructured) *Info {
 	}
 
 	return &Info{
+		ID:        shortID,
 		Name:      name,
 		Image:     image,
 		Status:    status,

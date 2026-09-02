@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"campfire/pkg/sandbox"
 	"campfire/pkg/terminal"
 
 	"github.com/spf13/cobra"
@@ -33,21 +34,26 @@ If no command is specified when using -it, defaults to an interactive /bin/sh se
 			return err
 		}
 
-		sandboxID := args[0]
+		target := args[0]
 		command := args[1:]
+
+		sandboxName := target
+		if sb, err := sandbox.Find(ctx, client, target); err == nil {
+			sandboxName = sb.Name
+		}
 
 		if execInteractive || execTTY {
 			if len(command) == 0 {
 				command = []string{"/bin/sh"}
 			}
-			return terminal.RunInteractiveSession(ctx, client, sandboxID, command)
+			return terminal.RunInteractiveSession(ctx, client, sandboxName, command)
 		}
 
 		if len(command) == 0 {
 			return fmt.Errorf("no command specified for exec")
 		}
 
-		stdout, stderr, err := terminal.ExecSimple(ctx, client, sandboxID, command)
+		stdout, stderr, err := terminal.ExecSimple(ctx, client, sandboxName, command)
 		if stdout != "" {
 			fmt.Print(stdout)
 		}
@@ -59,6 +65,7 @@ If no command is specified when using -it, defaults to an interactive /bin/sh se
 }
 
 func init() {
+	execCmd.Flags().SetInterspersed(false)
 	execCmd.Flags().BoolVarP(&execInteractive, "interactive", "i", false, "Keep STDIN open")
 	execCmd.Flags().BoolVarP(&execTTY, "tty", "t", false, "Allocate a pseudo-TTY")
 

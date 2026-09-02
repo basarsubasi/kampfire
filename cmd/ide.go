@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"campfire/pkg/ide"
+	"campfire/pkg/sandbox"
 
 	"github.com/spf13/cobra"
 )
@@ -29,8 +30,12 @@ tunnels the port securely via Kubernetes SPDY port-forwarding, and launches your
 			return err
 		}
 
-		sandboxID := args[0]
-		return ide.OpenVSCode(ctx, client, sandboxID)
+		target := args[0]
+		sandboxName := target
+		if sb, err := sandbox.Find(ctx, client, target); err == nil {
+			sandboxName = sb.Name
+		}
+		return ide.OpenVSCode(ctx, client, sandboxName)
 	},
 }
 
