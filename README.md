@@ -15,9 +15,9 @@ You must have access to a working Kubernetes cluster (v1.28+) with `kubectl` con
 Deploy the official Kubernetes SIG `agent-sandbox` controller and Custom Resource Definitions (CRDs):
 
 ```bash
-# Replace "vX.Y.Z" with a specific version tag (e.g., "v0.1.0") from
+# Replace "vX.Y.Z" with a specific version tag (e.g., "v1.0.0") from
 # https://github.com/kubernetes-sigs/agent-sandbox/releases
-export VERSION="v0.1.0"
+export VERSION="v1.0.0"
 
 kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${VERSION}/sandbox-with-extensions.yaml
 ```

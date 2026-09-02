@@ -3,8 +3,20 @@ set -euo pipefail
 
 CLUSTER_NAME="campfire-e2e"
 KUBECONFIG_FILE="/tmp/campfire-e2e-kubeconfig"
-VERSION="${AGENT_SANDBOX_VERSION:-v0.1.0}"
+VERSION="${AGENT_SANDBOX_VERSION:-v1.0.0}"
 KIND_BIN="${KIND_BIN:-./bin/kind}"
+
+# Ensure docker is available and running
+if ! command -v docker &>/dev/null; then
+    echo "❌ Error: docker is not installed. Please install Docker to run KinD E2E tests." >&2
+    exit 1
+fi
+
+if ! docker info &>/dev/null; then
+    echo "❌ Error: docker daemon is not running or current user lacks access." >&2
+    echo "Please start the Docker daemon and verify permissions before running." >&2
+    exit 1
+fi
 
 # Ensure kind binary is available
 if ! command -v "$KIND_BIN" &>/dev/null && [ ! -x "$KIND_BIN" ]; then
@@ -33,10 +45,6 @@ echo "==> Spinning up fresh KinD cluster: $CLUSTER_NAME..."
 "$KIND_BIN" create cluster --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG_FILE"
 
 export KUBECONFIG="$KUBECONFIG_FILE"
-
-echo "==> Pre-pulling and loading alpine image into KinD (for fast offline tests)..."
-docker pull alpine:latest
-"$KIND_BIN" load docker-image alpine:latest --name "$CLUSTER_NAME"
 
 echo "==> Deploying Kubernetes Agent Sandbox ($VERSION)..."
 kubectl apply -f "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${VERSION}/sandbox-with-extensions.yaml"

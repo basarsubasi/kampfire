@@ -3,7 +3,10 @@ package e2e
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"math/rand"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -233,5 +236,75 @@ spec:
 	}
 	if !strings.Contains(out, "ResourceQuota exceeded") && !strings.Contains(out, "limit reached") {
 		t.Errorf("expected clean quota error message, got: %s", out)
+	}
+}
+
+// TestE2E_PortForward tests port forwarding from host to container.
+func TestE2E_PortForward(t *testing.T) {
+	ns := setupNamespace(t)
+	boxName := "pf-box"
+
+	// 1. Run sandbox
+	_, err := runCampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox: %v", err)
+	}
+
+	// 2. Start a simple HTTP listener inside sandbox using busybox nc
+	startServerScript := `nohup sh -c 'while true; do echo -e "HTTP/1.1 200 OK\r\nContent-Length: 14\r\n\r\nhello-campfire" | nc -l -p 8080; done' >/dev/null 2>&1 &`
+	_, err = runCampfire(t, "-n", ns, "exec", boxName, "sh", "-c", startServerScript)
+	if err != nil {
+		t.Fatalf("failed to start server in container: %v", err)
+	}
+
+	// 3. Find a free local port
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to find free port: %v", err)
+	}
+	localPort := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+
+	// 4. Start campfire port-forward in background
+	pfCmd := exec.Command(campfireBin, "-n", ns, "port-forward", boxName, fmt.Sprintf("%d:8080", localPort))
+	var pfStdout, pfStderr bytes.Buffer
+	pfCmd.Stdout = &pfStdout
+	pfCmd.Stderr = &pfStderr
+
+	if err := pfCmd.Start(); err != nil {
+		t.Fatalf("failed to start port-forward command: %v", err)
+	}
+	t.Cleanup(func() {
+		if pfCmd.Process != nil {
+			_ = pfCmd.Process.Kill()
+		}
+	})
+
+	// 5. Poll localPort with HTTP client
+	targetURL := fmt.Sprintf("http://127.0.0.1:%d", localPort)
+	client := &http.Client{Timeout: 2 * time.Second}
+	var respBody string
+	var success bool
+
+	for i := 0; i < 20; i++ {
+		time.Sleep(500 * time.Millisecond)
+		resp, err := client.Get(targetURL)
+		if err == nil {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if strings.Contains(string(body), "hello-campfire") {
+				respBody = string(body)
+				success = true
+				break
+			}
+		}
+	}
+
+	if !success {
+		t.Fatalf("port-forward request failed: did not receive expected response from %s (stdout: %s, stderr: %s)", targetURL, pfStdout.String(), pfStderr.String())
+	}
+
+	if !strings.Contains(respBody, "hello-campfire") {
+		t.Errorf("expected response to contain 'hello-campfire', got: %s", respBody)
 	}
 }
