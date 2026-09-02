@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"campfire/pkg/config"
 
@@ -29,8 +30,8 @@ func NewClient(cfg *config.Config, namespaceOverride string) (*Client, error) {
 	var restConfig *rest.Config
 	var err error
 
-	if cfg.Server != "" && cfg.Token != "" {
-		// Use direct API token & Server configuration
+	// 1. Build base rest.Config from kubeconfig (or standalone server if explicitly specified)
+	if cfg != nil && cfg.Server != "" && cfg.Token != "" && cfg.CAData != "" {
 		rc := &rest.Config{
 			Host:        cfg.Server,
 			BearerToken: cfg.Token,
@@ -43,15 +44,28 @@ func NewClient(cfg *config.Config, namespaceOverride string) (*Client, error) {
 		}
 		restConfig = rc
 	} else {
-		// Fallback to kubeconfig
 		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-		if cfg.KubeconfigPath != "" {
+		if cfg != nil && cfg.KubeconfigPath != "" {
 			loadingRules.ExplicitPath = cfg.KubeconfigPath
 		}
 		clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
 		restConfig, err = clientConfig.ClientConfig()
 		if err != nil {
 			return nil, fmt.Errorf("failed to build kubernetes config: %w", err)
+		}
+
+		// 2. Token override: check CAMPFIRE_API_TOKEN env var or config token
+		token := os.Getenv("CAMPFIRE_API_TOKEN")
+		if token == "" && cfg != nil {
+			token = cfg.Token
+		}
+		if token != "" {
+			restConfig.BearerToken = strings.TrimSpace(token)
+			// Clear client certificate auth from kubeconfig so bearer token takes precedence
+			restConfig.CertData = nil
+			restConfig.CertFile = ""
+			restConfig.KeyData = nil
+			restConfig.KeyFile = ""
 		}
 	}
 

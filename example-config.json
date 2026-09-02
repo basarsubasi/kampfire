@@ -1,8 +1,0 @@
-{
-  "server": "https://k8s.example.com:6443",
-  "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Ii4uLiJ9.eyJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6dXNlci1hbGljZTphbGljZSIsImt1YmVybmV0ZXMuaW8iOnsibmFtZXNwYWNlIjoidXNlci1hbGljZSIsInNlcnZpY2VhY2NvdW50Ijp7Im5hbWUiOiJhbGljZSJ9fX0.signature",
-  "namespace": "user-alice",
-  "ca_data": "-----BEGIN CERTIFICATE-----\nMIIDBTCCAe2gAwIBAgIIF91xrAk3yV8wDQYJKoZIhvcNAQELBQAwFTETMBEGA1UE...\n-----END CERTIFICATE-----\n",
-  "insecure_skip_tls_verify": false,
-  "kubeconfig_path": ""
-}

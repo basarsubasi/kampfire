@@ -40,22 +40,30 @@ func Load(customPath string) (*Config, string, error) {
 		}
 	}
 
+	var cfg *Config
 	if data, err := os.ReadFile(path); err == nil {
-		var cfg Config
-		if err := json.Unmarshal(data, &cfg); err != nil {
+		var c Config
+		if err := json.Unmarshal(data, &c); err != nil {
 			return nil, path, fmt.Errorf("failed to parse config at %s: %w", path, err)
 		}
-		return &cfg, path, nil
+		cfg = &c
+	} else {
+		// Config file does not exist yet. Seed from kubeconfig.
+		var seedErr error
+		cfg, seedErr = SeedFromKubeconfig()
+		if seedErr != nil {
+			cfg = &Config{}
+		}
+
+		// Try saving seeded config to disk
+		_ = Save(path, cfg)
 	}
 
-	// Config file does not exist yet. Seed from kubeconfig.
-	cfg, err := SeedFromKubeconfig()
-	if err != nil {
-		cfg = &Config{}
+	// If KUBECONFIG environment variable is set in the current shell, override the kubeconfig path
+	if envKubeconfig := os.Getenv("KUBECONFIG"); envKubeconfig != "" {
+		cfg.KubeconfigPath = envKubeconfig
 	}
 
-	// Try saving seeded config to disk
-	_ = Save(path, cfg)
 	return cfg, path, nil
 }
 

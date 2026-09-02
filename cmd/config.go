@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"campfire/pkg/config"
@@ -26,12 +27,21 @@ var configCmd = &cobra.Command{
 			return err
 		}
 
+		token := os.Getenv("CAMPFIRE_API_TOKEN")
+		tokenSource := ""
+		if token != "" {
+			tokenSource = " " + ui.MutedStyle.Render("(from $CAMPFIRE_API_TOKEN)")
+		} else if cfg.Token != "" {
+			token = cfg.Token
+			tokenSource = " " + ui.MutedStyle.Render("(from config)")
+		}
+
 		tokenDisplay := "(not configured)"
-		if cfg.Token != "" {
-			if len(cfg.Token) > 12 {
-				tokenDisplay = cfg.Token[:6] + "..." + cfg.Token[len(cfg.Token)-4:]
+		if token != "" {
+			if len(token) > 12 {
+				tokenDisplay = token[:6] + "..." + token[len(token)-4:] + tokenSource
 			} else {
-				tokenDisplay = "********"
+				tokenDisplay = "********" + tokenSource
 			}
 		}
 
@@ -53,7 +63,11 @@ var configCmd = &cobra.Command{
 		fmt.Printf("  • %-15s: %s\n", "API Server", serverDisplay)
 		fmt.Printf("  • %-15s: %s\n", "API Token", tokenDisplay)
 		if cfg.KubeconfigPath != "" {
-			fmt.Printf("  • %-15s: %s\n", "Kubeconfig", cfg.KubeconfigPath)
+			source := ""
+			if os.Getenv("KUBECONFIG") != "" {
+				source = " " + ui.MutedStyle.Render("(from $KUBECONFIG)")
+			}
+			fmt.Printf("  • %-15s: %s%s\n", "Kubeconfig", cfg.KubeconfigPath, source)
 		}
 		return nil
 	},
