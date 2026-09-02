@@ -1,12 +1,12 @@
-# 🔥 campfire
+# campfire
 
-> **A developer-first, Docker-style CLI for Kubernetes Agent Sandboxes (`agents.x-k8s.io`).**
+> **A developer-first, Docker-style CLI for Kubernetes Agent Sandboxes.**
 
 Campfire brings the familiar ergonomics of Docker directly to Kubernetes Agent Sandboxes. It features realistic interactive PTY terminals, zero-configuration token injection, dynamic namespace scoping, and one-command browser VS Code launch.
 
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
 ### 1. Prerequisites
 You must have access to a working Kubernetes cluster (v1.28+) with `kubectl` configured.
@@ -248,6 +248,31 @@ When a user reaches their limit, Campfire catches the quota rejection from the K
 ```
 ✗ sandbox limit reached in namespace team-alice (ResourceQuota exceeded)
   Use 'campfire ps' and 'campfire rm' to free up capacity
+```
+
+---
+
+## 🧪 Testing & CI/CD
+
+Campfire includes a comprehensive end-to-end (E2E) test suite covering:
+* Sandbox provisioning & PTY/command execution
+* `ps` table formatting, column alignment, and short IDs
+* Bidirectional file copy (`cp`)
+* Deletion & namespace cleanup (`rm`)
+* Kubernetes `ResourceQuota` limit enforcement
+
+### Running Tests Locally with KinD (Starts from scratch)
+Spins up a temporary KinD cluster, installs Agent Sandbox, pre-loads the Alpine image for fast testing, executes the test suite, and automatically destroys the cluster on exit:
+
+```bash
+make e2e
+```
+
+### Running Tests Against an Existing Cluster
+To execute tests against your currently active `kubectl` cluster:
+
+```bash
+make test-e2e
 ```
 
 ---
