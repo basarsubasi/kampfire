@@ -4,18 +4,41 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-var campfireBin string
+var (
+	campfireBin string
+	nsCounter   int64
+)
+
+const campfireUserClusterRole = `
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: campfire-user
+rules:
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["extensions.agents.x-k8s.io"]
+    resources: ["sandboxclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/portforward"]
+    verbs: ["create", "get"]
+`
 
 func TestMain(m *testing.M) {
 	// Find project root
@@ -27,20 +50,30 @@ func TestMain(m *testing.M) {
 
 	campfireBin = filepath.Join(root, "bin", "campfire")
 
-	// Ensure campfire binary is compiled
+	// 1. Ensure campfire binary is compiled
 	build := exec.Command("go", "build", "-o", campfireBin, root)
 	if out, err := build.CombinedOutput(); err != nil {
 		fmt.Printf("failed to build campfire binary: %s\n", string(out))
 		os.Exit(1)
 	}
 
+	// 2. Ensure campfire-user ClusterRole is applied to cluster
+	applyRole := exec.Command("kubectl", "apply", "-f", "-")
+	applyRole.Stdin = strings.NewReader(campfireUserClusterRole)
+	if out, err := applyRole.CombinedOutput(); err != nil {
+		fmt.Printf("warning: failed to apply campfire-user ClusterRole: %s\n", string(out))
+	}
+
 	os.Exit(m.Run())
 }
 
-// runCampfire executes the campfire binary with the provided arguments.
-func runCampfire(t *testing.T, args ...string) (string, error) {
+// runCampfireWithEnv executes the campfire CLI with optional environment variables.
+func runCampfireWithEnv(t *testing.T, env []string, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command(campfireBin, args...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -49,10 +82,16 @@ func runCampfire(t *testing.T, args ...string) (string, error) {
 	return output, err
 }
 
-// setupNamespace creates a unique ephemeral namespace and registers cleanup.
+// runCampfire executes the campfire CLI with standard environment.
+func runCampfire(t *testing.T, args ...string) (string, error) {
+	return runCampfireWithEnv(t, nil, args...)
+}
+
+// setupNamespace creates a unique ephemeral namespace with atomic collision-free naming and registers cleanup.
 func setupNamespace(t *testing.T) string {
 	t.Helper()
-	ns := fmt.Sprintf("e2e-%d", time.Now().UnixNano()%1000000+int64(rand.Intn(1000)))
+	id := atomic.AddInt64(&nsCounter, 1)
+	ns := fmt.Sprintf("e2e-%d-%d", time.Now().UnixNano()%1000000, id)
 
 	cmd := exec.Command("kubectl", "create", "namespace", ns)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -66,8 +105,124 @@ func setupNamespace(t *testing.T) string {
 	return ns
 }
 
+// TestE2E_RBACAndTokenAuth verifies tenant ServiceAccount token minting, authorized operations,
+// and strictly blocks unauthenticated (401) or unauthorized (403) cross-namespace actions.
+func TestE2E_RBACAndTokenAuth(t *testing.T) {
+	t.Parallel()
+	nsAlice := setupNamespace(t)
+	nsBob := setupNamespace(t)
+	saAlice := "alice"
+	boxAlice := "alice-box"
+	boxBob := "bob-box"
+
+	// 1. Setup Tenant Alice with campfire-user ClusterRole
+	cmd := exec.Command("kubectl", "create", "serviceaccount", saAlice, "-n", nsAlice)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to create Alice ServiceAccount: %s", string(out))
+	}
+	cmd = exec.Command("kubectl", "create", "rolebinding", saAlice+"-campfire",
+		"--clusterrole=campfire-user",
+		fmt.Sprintf("--serviceaccount=%s:%s", nsAlice, saAlice),
+		"-n", nsAlice)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to create Alice RoleBinding: %s", string(out))
+	}
+	cmd = exec.Command("kubectl", "create", "token", saAlice, "-n", nsAlice, "--duration=1h")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("failed to mint Alice token: %s", string(out))
+	}
+	aliceToken := strings.TrimSpace(string(out))
+	aliceEnv := []string{"CAMPFIRE_API_TOKEN=" + aliceToken}
+
+	// 2. Setup a sandbox in Tenant Bob's namespace using admin credentials
+	_, err = runCampfire(t, "-n", nsBob, "run", "--name", boxBob, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to setup Bob sandbox: %v", err)
+	}
+
+	// --- Scenario A: Authorized operations for Alice in nsAlice ---
+	runOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsAlice, "run", "--name", boxAlice, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("Alice run with token failed in her own namespace: %s (err: %v)", runOut, err)
+	}
+
+	execOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsAlice, "exec", boxAlice, "echo", "token-authenticated")
+	if err != nil || !strings.Contains(execOut, "token-authenticated") {
+		t.Fatalf("Alice exec with token failed: %s (err: %v)", execOut, err)
+	}
+
+	psOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsAlice, "ps")
+	if err != nil || !strings.Contains(psOut, boxAlice) {
+		t.Fatalf("Alice ps with token failed: %s (err: %v)", psOut, err)
+	}
+
+	// --- Scenario B: Unauthenticated operation with bogus token (401 Unauthorized) ---
+	bogusEnv := []string{"CAMPFIRE_API_TOKEN=bogus-invalid-token-12345"}
+	unauthOut, err := runCampfireWithEnv(t, bogusEnv, "-n", nsAlice, "ps")
+	if err == nil {
+		t.Fatalf("expected bogus token to fail with 401 Unauthorized, but succeeded: %s", unauthOut)
+	}
+	if !strings.Contains(unauthOut, "Unauthorized") && !strings.Contains(unauthOut, "401") && !strings.Contains(unauthOut, "invalid bearer token") {
+		t.Errorf("expected 401 Unauthorized error for bogus token, got: %s", unauthOut)
+	}
+
+	// --- Scenario C: Unauthorized operation with unprivileged ServiceAccount (403 Forbidden) ---
+	saUnpriv := "charlie-unpriv"
+	_ = exec.Command("kubectl", "create", "serviceaccount", saUnpriv, "-n", nsAlice).Run()
+	tokenCmd := exec.Command("kubectl", "create", "token", saUnpriv, "-n", nsAlice, "--duration=1h")
+	tokenOut, _ := tokenCmd.CombinedOutput()
+	unprivEnv := []string{"CAMPFIRE_API_TOKEN=" + strings.TrimSpace(string(tokenOut))}
+
+	noRoleOut, err := runCampfireWithEnv(t, unprivEnv, "-n", nsAlice, "ps")
+	if err == nil {
+		t.Fatalf("expected unprivileged account to fail with 403 Forbidden, but succeeded: %s", noRoleOut)
+	}
+	if !strings.Contains(noRoleOut, "forbidden") && !strings.Contains(noRoleOut, "Forbidden") && !strings.Contains(noRoleOut, "403") {
+		t.Errorf("expected 403 Forbidden for unprivileged account, got: %s", noRoleOut)
+	}
+
+	// --- Scenario D: Cross-Tenant Isolation (Alice trying to access or tamper with Bob's namespace) ---
+	// 1. Alice tries to list Bob's sandboxes -> 403 Forbidden
+	crossPsOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsBob, "ps")
+	if err == nil {
+		t.Fatalf("Alice should not be able to list Bob's sandboxes, but succeeded: %s", crossPsOut)
+	}
+	if !strings.Contains(crossPsOut, "forbidden") && !strings.Contains(crossPsOut, "Forbidden") && !strings.Contains(crossPsOut, "403") {
+		t.Errorf("expected 403 Forbidden when Alice lists Bob's namespace, got: %s", crossPsOut)
+	}
+
+	// 2. Alice tries to exec into Bob's sandbox -> 403 Forbidden
+	crossExecOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsBob, "exec", boxBob, "uname", "-a")
+	if err == nil {
+		t.Fatalf("Alice should not be able to exec into Bob's sandbox, but succeeded: %s", crossExecOut)
+	}
+	if !strings.Contains(crossExecOut, "forbidden") && !strings.Contains(crossExecOut, "Forbidden") && !strings.Contains(crossExecOut, "403") {
+		t.Errorf("expected 403 Forbidden when Alice execs into Bob's sandbox, got: %s", crossExecOut)
+	}
+
+	// 3. Alice tries to delete Bob's sandbox -> 403 Forbidden
+	crossRmOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsBob, "rm", boxBob)
+	if err == nil {
+		t.Fatalf("Alice should not be able to delete Bob's sandbox, but succeeded: %s", crossRmOut)
+	}
+	if !strings.Contains(crossRmOut, "forbidden") && !strings.Contains(crossRmOut, "Forbidden") && !strings.Contains(crossRmOut, "403") {
+		t.Errorf("expected 403 Forbidden when Alice deletes Bob's sandbox, got: %s", crossRmOut)
+	}
+
+	// 4. Alice tries to port-forward Bob's sandbox -> 403 Forbidden
+	crossPfOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsBob, "port-forward", boxBob, "9999:80")
+	if err == nil {
+		t.Fatalf("Alice should not be able to port-forward Bob's sandbox, but succeeded: %s", crossPfOut)
+	}
+	if !strings.Contains(crossPfOut, "forbidden") && !strings.Contains(crossPfOut, "Forbidden") && !strings.Contains(crossPfOut, "403") {
+		t.Errorf("expected 403 Forbidden when Alice port-forwards Bob's sandbox, got: %s", crossPfOut)
+	}
+}
+
 // TestE2E_RunAndExec tests sandbox creation and command execution.
 func TestE2E_RunAndExec(t *testing.T) {
+	t.Parallel()
 	ns := setupNamespace(t)
 	boxName := "exec-box"
 
@@ -92,6 +247,7 @@ func TestE2E_RunAndExec(t *testing.T) {
 
 // TestE2E_PSTableAndShortIDs tests ps listing, column alignment, and short ID resolution.
 func TestE2E_PSTableAndShortIDs(t *testing.T) {
+	t.Parallel()
 	ns := setupNamespace(t)
 	boxName := "ps-box"
 
@@ -134,6 +290,7 @@ func TestE2E_PSTableAndShortIDs(t *testing.T) {
 
 // TestE2E_Copy tests bidirectional file transfer between host and sandbox.
 func TestE2E_Copy(t *testing.T) {
+	t.Parallel()
 	ns := setupNamespace(t)
 	boxName := "cp-box"
 
@@ -180,6 +337,7 @@ func TestE2E_Copy(t *testing.T) {
 
 // TestE2E_Remove tests sandbox deletion and confirmation in ps.
 func TestE2E_Remove(t *testing.T) {
+	t.Parallel()
 	ns := setupNamespace(t)
 	boxName := "rm-box"
 
@@ -203,6 +361,7 @@ func TestE2E_Remove(t *testing.T) {
 
 // TestE2E_ResourceQuotaLimit tests that Kubernetes ResourceQuotas are enforced and formatted properly.
 func TestE2E_ResourceQuotaLimit(t *testing.T) {
+	t.Parallel()
 	ns := setupNamespace(t)
 
 	// Apply a hard limit of 1 sandbox
@@ -241,6 +400,7 @@ spec:
 
 // TestE2E_PortForward tests port forwarding from host to container.
 func TestE2E_PortForward(t *testing.T) {
+	t.Parallel()
 	ns := setupNamespace(t)
 	boxName := "pf-box"
 

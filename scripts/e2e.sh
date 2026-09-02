@@ -55,8 +55,8 @@ kubectl wait --for=condition=Available deployment/agent-sandbox-controller -n ag
 echo "==> Building campfire binary..."
 go build -o bin/campfire .
 
-echo "==> Executing E2E Test Suite..."
-go test -v -timeout 10m ./test/e2e/...
+echo "==> Executing E2E Test Suite in Parallel..."
+go test -v -parallel 8 -timeout 10m ./test/e2e/...
 
 echo ""
 echo "🎉 All E2E Tests Passed!"

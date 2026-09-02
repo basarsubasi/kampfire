@@ -8,7 +8,7 @@ test:
 
 # Run E2E tests against the currently active Kubernetes cluster
 test-e2e: build
-	go test -v -timeout 10m ./test/e2e/...
+	go test -v -parallel 8 -timeout 10m ./test/e2e/...
 
 # Spin up a fresh KinD cluster, deploy Agent Sandbox, run E2E tests, and tear down
 e2e:

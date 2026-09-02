@@ -198,7 +198,21 @@ campfire ide vscode 0cceb66ac7b7 --browser
 ```
 > Campfire detects if `code-server` is installed in the container, automatically downloads and installs it if missing, establishes a secure Kubernetes SPDY port-forward tunnel, and opens your desktop VS Code application.
 
-### 7. Cleanup
+### 7. Port Forwarding
+Forward one or more local ports to a sandbox container over a secure SPDY tunnel:
+
+```bash
+# Forward local port 8080 to container port 80
+campfire port-forward my-sandbox 8080:80
+
+# Forward local port 3000 to container port 3000 (shorthand)
+campfire port-forward my-sandbox 3000
+
+# Forward multiple ports simultaneously (using name or short ID)
+campfire port-forward 0cceb66ac7b7 8080:80 5432:5432
+```
+
+### 8. Cleanup
 Remove one or more sandboxes by ID or name:
 
 ```bash
