@@ -383,19 +383,31 @@ spec:
 		t.Fatalf("failed to apply ResourceQuota: %s", string(out))
 	}
 
-	// 1st sandbox: should succeed
-	out, err := runCampfire(t, "-n", ns, "run", "--name", "quota-box1", "--image", "alpine", "-d")
-	if err != nil {
-		t.Fatalf("first sandbox should succeed under quota: %s", out)
+	// 1st sandbox: should succeed (with brief retry while quota controller calculates status)
+	var out string
+	var runErr error
+	for i := 0; i < 6; i++ {
+		out, runErr = runCampfire(t, "-n", ns, "run", "--name", "quota-box1", "--image", "alpine", "-d")
+		if runErr == nil {
+			break
+		}
+		if strings.Contains(out, "status unknown for quota") {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		break
+	}
+	if runErr != nil {
+		t.Fatalf("first sandbox should succeed under quota: %s (err: %v)", out, runErr)
 	}
 
 	// 2nd sandbox: MUST fail due to quota
-	out, err = runCampfire(t, "-n", ns, "run", "--name", "quota-box2", "--image", "alpine", "-d")
-	if err == nil {
-		t.Fatalf("expected second sandbox to fail quota, but succeeded: %s", out)
+	secondOut, secondErr := runCampfire(t, "-n", ns, "run", "--name", "quota-box2", "--image", "alpine", "-d")
+	if secondErr == nil {
+		t.Fatalf("expected second sandbox to fail quota, but succeeded: %s", secondOut)
 	}
-	if !strings.Contains(out, "ResourceQuota exceeded") && !strings.Contains(out, "limit reached") {
-		t.Errorf("expected clean quota error message, got: %s", out)
+	if !strings.Contains(secondOut, "ResourceQuota exceeded") && !strings.Contains(secondOut, "limit reached") {
+		t.Errorf("expected clean quota error message, got: %s", secondOut)
 	}
 }
 
@@ -608,5 +620,21 @@ func TestE2E_RunWithPrivateSSHKeys(t *testing.T) {
 		if perm != "700" {
 			t.Errorf("expected .ssh dir permission 700, got: %s", perm)
 		}
+	}
+}
+
+// TestE2E_RunCloneRepo verifies that campfire run --clone-repo attempts git clone in sandbox home.
+func TestE2E_RunCloneRepo(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "git-box"
+
+	// In plain alpine without git installed, campfire should report that git clone was attempted and failed
+	out, err := runCampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "--clone-repo", "https://github.com/example/repo.git", "-d")
+	if err == nil {
+		t.Fatalf("expected alpine without git to fail cloning, but succeeded: %s", out)
+	}
+	if !strings.Contains(out, "failed to clone repository") && !strings.Contains(out, "git") {
+		t.Errorf("expected clone failure output, got: %s", out)
 	}
 }

@@ -22,6 +22,7 @@ var (
 	runDetach             bool
 	runAutoRemove         bool
 	runWithPrivateSSHKeys bool
+	runCloneRepo          string
 )
 
 var runCmd = &cobra.Command{
@@ -104,6 +105,19 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 			ui.Success("SSH keys injected into sandbox")
 		}
 
+		// Clone git repository if requested (executed last, after SSH keys are in place)
+		if runCloneRepo != "" {
+			ui.Info("Cloning %s into sandbox home...", runCloneRepo)
+			stdout, stderr, err := terminal.ExecSimple(ctx, client, info.Name, []string{
+				"sh", "-c", "cd \"$HOME\" && git clone \"$1\"", "--", runCloneRepo,
+			})
+			if err != nil {
+				output := strings.TrimSpace(stdout + " " + stderr)
+				return fmt.Errorf("failed to clone repository inside sandbox: %s (err: %w)", output, err)
+			}
+			ui.Success("Cloned repository into sandbox home")
+		}
+
 		// Detached mode
 		if runDetach {
 			fmt.Println(info.Name)
@@ -151,6 +165,7 @@ func init() {
 	runCmd.Flags().BoolVarP(&runDetach, "detach", "d", false, "Run sandbox in background and print ID")
 	runCmd.Flags().BoolVar(&runAutoRemove, "rm", false, "Automatically remove the sandbox when it exits")
 	runCmd.Flags().BoolVar(&runWithPrivateSSHKeys, "with-private-ssh-keys", false, "Copy host private SSH keys into sandbox upon creation")
+	runCmd.Flags().StringVar(&runCloneRepo, "clone-repo", "", "Clone a git repository to home upon sandbox creation")
 
 	RootCmd.AddCommand(runCmd)
 }
