@@ -11,6 +11,7 @@ import (
 
 	"campfire/pkg/k8s"
 	"campfire/pkg/sandbox"
+	"campfire/pkg/terminal"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -255,6 +256,85 @@ func copyFromSandbox(ctx context.Context, client *k8s.Client, podName, remotePat
 			f.Close()
 		}
 	}
+
+	return nil
+}
+
+// InjectSSHKeys copies host SSH keys (~/.ssh) into the container's home directory.
+func InjectSSHKeys(ctx context.Context, client *k8s.Client, podName string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to determine user home directory: %w", err)
+	}
+
+	sshDir := filepath.Join(home, ".ssh")
+	info, err := os.Stat(sshDir)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("no ~/.ssh directory found on host (%s)", sshDir)
+	}
+
+	entries, err := os.ReadDir(sshDir)
+	if err != nil {
+		return fmt.Errorf("failed to read ~/.ssh directory: %w", err)
+	}
+
+	if len(entries) == 0 {
+		return fmt.Errorf("~/.ssh directory is empty on host")
+	}
+
+	// 1. Determine container's $HOME
+	remoteHome, _, err := terminal.ExecSimple(ctx, client, podName, []string{"sh", "-c", "echo -n $HOME"})
+	remoteHome = strings.TrimSpace(remoteHome)
+	if err != nil || remoteHome == "" {
+		remoteHome = "/root"
+	}
+	destDir := fmt.Sprintf("%s/.ssh", remoteHome)
+
+	// 2. Stage files into a clean temporary directory with proper permissions
+	tempStaging, err := os.MkdirTemp("", "campfire-ssh-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary staging directory: %w", err)
+	}
+	defer os.RemoveAll(tempStaging)
+
+	copiedCount := 0
+	for _, entry := range entries {
+		// Only copy regular files (skip sockets like agent.*, fifos, subdirectories)
+		if entry.IsDir() || !entry.Type().IsRegular() {
+			continue
+		}
+
+		srcFile := filepath.Join(sshDir, entry.Name())
+		data, err := os.ReadFile(srcFile)
+		if err != nil {
+			continue
+		}
+
+		destFile := filepath.Join(tempStaging, entry.Name())
+		mode := os.FileMode(0600)
+		if strings.HasSuffix(entry.Name(), ".pub") || entry.Name() == "known_hosts" || entry.Name() == "config" {
+			mode = 0644
+		}
+
+		if err := os.WriteFile(destFile, data, mode); err != nil {
+			return fmt.Errorf("failed to stage SSH file %s: %w", entry.Name(), err)
+		}
+		copiedCount++
+	}
+
+	if copiedCount == 0 {
+		return fmt.Errorf("no valid SSH key files found in %s", sshDir)
+	}
+
+	// 3. Copy staged files to sandbox
+	if err := Copy(ctx, client, tempStaging, fmt.Sprintf("%s:%s", podName, destDir)); err != nil {
+		return fmt.Errorf("failed to copy SSH keys into sandbox: %w", err)
+	}
+
+	// 4. Ensure strict permissions inside container (required by OpenSSH)
+	chmodScript := fmt.Sprintf("chmod 700 %s && chmod 600 %s/* 2>/dev/null; chmod 644 %s/*.pub %s/known_hosts %s/config 2>/dev/null || true",
+		destDir, destDir, destDir, destDir, destDir)
+	_, _, _ = terminal.ExecSimple(ctx, client, podName, []string{"sh", "-c", chmodScript})
 
 	return nil
 }

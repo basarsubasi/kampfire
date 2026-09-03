@@ -8,18 +8,20 @@ import (
 
 	"campfire/pkg/sandbox"
 	"campfire/pkg/terminal"
+	"campfire/pkg/transfer"
 	"campfire/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
 
 var (
-	runImage       string
-	runName        string
-	runInteractive bool
-	runTTY         bool
-	runDetach      bool
-	runAutoRemove  bool
+	runImage              string
+	runName               string
+	runInteractive        bool
+	runTTY                bool
+	runDetach             bool
+	runAutoRemove         bool
+	runWithPrivateSSHKeys bool
 )
 
 var runCmd = &cobra.Command{
@@ -93,6 +95,15 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 		ui.Success("Sandbox %s is running in namespace %s (took %.1fs)",
 			ui.TitleStyle.Render(info.Name), client.Namespace, time.Since(start).Seconds())
 
+		// Inject SSH keys if requested
+		if runWithPrivateSSHKeys {
+			ui.Info("Injecting private SSH keys into sandbox %s...", info.Name)
+			if err := transfer.InjectSSHKeys(ctx, client, info.Name); err != nil {
+				return fmt.Errorf("failed to inject SSH keys: %w", err)
+			}
+			ui.Success("SSH keys injected into sandbox")
+		}
+
 		// Detached mode
 		if runDetach {
 			fmt.Println(info.Name)
@@ -139,6 +150,7 @@ func init() {
 	runCmd.Flags().BoolVarP(&runTTY, "tty", "t", false, "Allocate a pseudo-TTY")
 	runCmd.Flags().BoolVarP(&runDetach, "detach", "d", false, "Run sandbox in background and print ID")
 	runCmd.Flags().BoolVar(&runAutoRemove, "rm", false, "Automatically remove the sandbox when it exits")
+	runCmd.Flags().BoolVar(&runWithPrivateSSHKeys, "with-private-ssh-keys", false, "Copy host private SSH keys into sandbox upon creation")
 
 	RootCmd.AddCommand(runCmd)
 }

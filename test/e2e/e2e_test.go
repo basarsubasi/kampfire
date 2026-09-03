@@ -578,3 +578,35 @@ func TestE2E_ConfigSetTokenAndKubeconfig(t *testing.T) {
 		t.Errorf("expected campfire config to display API Server and Namespace from context, got:\n%s", viewOut)
 	}
 }
+
+// TestE2E_RunWithPrivateSSHKeys verifies that campfire run --with-private-ssh-keys
+// injects host SSH keys into the container with correct permissions.
+func TestE2E_RunWithPrivateSSHKeys(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "ssh-box"
+
+	out, err := runCampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "--with-private-ssh-keys", "-d")
+	if err != nil {
+		t.Fatalf("failed to run with --with-private-ssh-keys: %s (err: %v)", out, err)
+	}
+
+	// Verify that ~/.ssh exists inside the container and files were copied
+	lsOut, err := runCampfire(t, "-n", ns, "exec", boxName, "ls", "-la", "/root/.ssh")
+	if err != nil {
+		t.Fatalf("exec ls ~/.ssh failed: %s (err: %v)", lsOut, err)
+	}
+
+	if !strings.Contains(lsOut, "id_ed25519") && !strings.Contains(lsOut, "id_rsa") {
+		t.Errorf("expected SSH keys to be present in /root/.ssh, got:\n%s", lsOut)
+	}
+
+	// Verify permissions on .ssh dir
+	statOut, err := runCampfire(t, "-n", ns, "exec", boxName, "stat", "-c", "%a", "/root/.ssh")
+	if err == nil {
+		perm := strings.TrimSpace(statOut)
+		if perm != "700" {
+			t.Errorf("expected .ssh dir permission 700, got: %s", perm)
+		}
+	}
+}
