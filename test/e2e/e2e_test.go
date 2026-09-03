@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -550,5 +551,30 @@ func TestE2E_ConfigSetTokenAndKubeconfig(t *testing.T) {
 	envOverrideOut, err := runCampfireWithEnv(t, []string{"KUBECONFIG=" + nonExistentKube, "CAMPFIRE_API_TOKEN="}, "-n", ns, "--config", tempCfg, "ps")
 	if err == nil {
 		t.Fatalf("expected non-existent KUBECONFIG env var to override config and fail, but succeeded: %s", envOverrideOut)
+	}
+
+	// 7. Verify config.json does NOT hold server or namespace (retrieved dynamically from active context)
+	data, err := os.ReadFile(tempCfg)
+	if err != nil {
+		t.Fatalf("failed to read config file: %v", err)
+	}
+	var rawMap map[string]interface{}
+	if err := json.Unmarshal(data, &rawMap); err != nil {
+		t.Fatalf("failed to parse json config: %v", err)
+	}
+	if _, exists := rawMap["server"]; exists {
+		t.Errorf("expected server to NOT be stored in config.json, but found it")
+	}
+	if _, exists := rawMap["namespace"]; exists {
+		t.Errorf("expected namespace to NOT be stored in config.json, but found it")
+	}
+
+	// 8. Verify campfire config displays active Server and Namespace dynamically from kubeconfig context
+	viewOut, err := runCampfire(t, "config", "--config", tempCfg)
+	if err != nil {
+		t.Fatalf("failed to view config: %s (err: %v)", viewOut, err)
+	}
+	if !strings.Contains(viewOut, "API Server") || !strings.Contains(viewOut, "Namespace") {
+		t.Errorf("expected campfire config to display API Server and Namespace from context, got:\n%s", viewOut)
 	}
 }

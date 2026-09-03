@@ -1,12 +1,9 @@
 # campfire
-
-> **A developer-first, Docker-style CLI for Kubernetes Agent Sandboxes.**
-
-Campfire brings the familiar ergonomics of Docker directly to Kubernetes Agent Sandboxes. It features realistic interactive PTY terminals, zero-configuration token injection, dynamic namespace scoping, port-forwarding, and one-click desktop VS Code integration.
+A developer-first, Docker-style CLI for Kubernetes Agent Sandboxes.
 
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
 ### 1. Install the CLI
 
@@ -19,21 +16,30 @@ sudo mv bin/campfire /usr/local/bin/campfire
 
 ### 2. Connect to your Cluster
 
-Point Campfire to your cluster via your tenant kubeconfig or an API token:
+Campfire discovers your cluster endpoint and namespace from your kubeconfig, and authenticates API calls using either the kubeconfig's credentials or a scoped bearer token.
+
+You can configure them permanently or per shell session:
 
 ```bash
-# Option A: Using your tenant kubeconfig (recommended)
-export KUBECONFIG=~/campfire-user.yaml
+# Option A: Save default settings (stored in ~/.config/campfire/config.json)
+campfire config set --kubeconfig ~/campfire-user.yaml
+campfire config set --token "<your-token>"
 
-# Option B: Using a scoped API token with existing cluster endpoint
+# Option B: Use environment variables (takes precedence over saved config)
+export KUBECONFIG=~/campfire-user.yaml
 export CAMPFIRE_API_TOKEN="<your-token>"
 ```
 
-> 📖 **Cluster Administrators**: If you need to set up the cluster, RBAC, tokens, quotas, or MicroVM runtimes, see the **[Cluster Setup Guide](docs/setup/README.md)**.
+Inspect your active configuration and sources at any time:
+```bash
+campfire config
+```
+
+> **Cluster Administrators**: If you need to set up the cluster, RBAC, tokens, quotas, or MicroVM runtimes, see the **[Cluster Setup Guide](docs/setup/README.md)**.
 
 ---
 
-## 🎮 Command Walkthrough
+## Command Walkthrough
 
 ### 1. Launch a Sandbox (`run`)
 Create and start a new containerized sandbox with standard Docker flags:
@@ -128,23 +134,6 @@ campfire rm $(campfire ps -q)
 
 ---
 
-## 🔒 Security & Cluster Setup
-
-Campfire is a pure client tool that talks directly to the standard Kubernetes API server. All authentication, authorization, and isolation are enforced server-side.
-
-For cluster administrators, full setup guides are organized in **[`docs/setup/`](docs/setup/README.md)**:
-
-| Step | Guide | Description |
-| :---: | :--- | :--- |
-| **1** | [Install Dependencies](docs/setup/01_INSTALL_DEPENDENCIES.md) | Deploy official `agent-sandbox` CRDs & controller manager. |
-| **2** | [Create Tight Kubeconfig](docs/setup/02_CREATE_TIGHT_KUBECONFIG.md) | Generate non-privileged, cluster-endpoint-only kubeconfigs. |
-| **3** | [RBAC & Namespaces](docs/setup/03_RBAC_AND_NAMESPACES.md) | Apply `campfire-user` ClusterRole and namespace RoleBindings. |
-| **4** | [Mint API Tokens](docs/setup/04_MINT_API_TOKENS.md) | Mint time-bound ServiceAccount tokens and manage rotation. |
-| **5** | [Limit Resources](docs/setup/05_LIMIT_RESOURCES.md) | Enforce sandbox caps per user with `ResourceQuota`. |
-| **6** | [Enforce Kata-FC Runtime](docs/setup/06_ENFORCE_KATA_FC.md) | Hardware MicroVM isolation with Firecracker (`kata-fc`). |
-
----
-
 ## 🧪 Testing & CI/CD
 
 Campfire includes an automated parallel end-to-end (E2E) test suite covering RBAC isolation, unauthorized operation rejection (401/403), file transfer, resource quotas, and port forwarding.
@@ -162,17 +151,3 @@ Execute the E2E tests against your currently active `kubectl` context:
 ```bash
 make test-e2e
 ```
-
----
-
-## 🛠️ Global Flags
-
-* `-n, --namespace string`: Override target Kubernetes namespace.
-* `--config string`: Path to custom Campfire configuration file (defaults to `~/.config/campfire/config.json`).
-* `-v, --verbose`: Enable verbose debug output.
-
----
-
-## 📄 License
-
-[MIT](LICENSE) © 2026 Başar Subaşı
