@@ -11,12 +11,8 @@ import (
 
 // Config represents the Campfire user configuration.
 type Config struct {
-	Server                string `json:"server,omitempty"`
-	Token                 string `json:"token,omitempty"`
-	Namespace             string `json:"namespace,omitempty"`
-	CAData                string `json:"ca_data,omitempty"`
-	InsecureSkipTLSVerify bool   `json:"insecure_skip_tls_verify,omitempty"`
-	KubeconfigPath        string `json:"kubeconfig_path,omitempty"`
+	Token          string `json:"token,omitempty"`
+	KubeconfigPath string `json:"kubeconfig_path,omitempty"`
 }
 
 // DefaultConfigPath returns ~/.config/campfire/config.json.
@@ -59,31 +55,25 @@ func Load(customPath string) (*Config, string, error) {
 		_ = Save(path, cfg)
 	}
 
-	// If KUBECONFIG environment variable is set in the current shell, override the kubeconfig path
-	if envKubeconfig := os.Getenv("KUBECONFIG"); envKubeconfig != "" {
-		cfg.KubeconfigPath = envKubeconfig
-	}
-
 	return cfg, path, nil
 }
 
 // ResolveNamespace resolves the active namespace following kubectl precedence:
 // 1. Explicit CLI flag override (-n / --namespace)
-// 2. Explicit namespace set in config.json (for token-based configurations)
-// 3. Dynamic active context namespace from kubeconfig (how kubectl does it)
-// 4. In-cluster service account namespace (if running inside a pod)
-// 5. Fallback: "default"
+// 2. Dynamic active context namespace from kubeconfig (how kubectl does it)
+// 3. Fallback: "default"
 func ResolveNamespace(cliFlag string, cfg *Config) string {
 	if cliFlag != "" {
 		return cliFlag
 	}
-	if cfg != nil && cfg.Namespace != "" {
-		return cfg.Namespace
-	}
 
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	if cfg != nil && cfg.KubeconfigPath != "" {
-		loadingRules.ExplicitPath = cfg.KubeconfigPath
+	kubeconfig := os.Getenv("KUBECONFIG")
+	if kubeconfig == "" && cfg != nil {
+		kubeconfig = cfg.KubeconfigPath
+	}
+	if kubeconfig != "" {
+		loadingRules.ExplicitPath = kubeconfig
 	}
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
 	if activeNS, _, err := clientConfig.Namespace(); err == nil && activeNS != "" {
@@ -119,25 +109,6 @@ func SeedFromKubeconfig() (*Config, error) {
 	currentContextName := kubeConfig.CurrentContext
 	currentContext, exists := kubeConfig.Contexts[currentContextName]
 
-	var ns string
-	if exists && currentContext.Namespace != "" {
-		ns = currentContext.Namespace
-	}
-
-	var serverURL string
-	var caData string
-	var insecure bool
-
-	if exists {
-		if cluster, ok := kubeConfig.Clusters[currentContext.Cluster]; ok {
-			serverURL = cluster.Server
-			if len(cluster.CertificateAuthorityData) > 0 {
-				caData = string(cluster.CertificateAuthorityData)
-			}
-			insecure = cluster.InsecureSkipTLSVerify
-		}
-	}
-
 	var token string
 	if exists {
 		if authInfo, ok := kubeConfig.AuthInfos[currentContext.AuthInfo]; ok {
@@ -149,11 +120,7 @@ func SeedFromKubeconfig() (*Config, error) {
 	kubeconfigPath := loadingRules.GetDefaultFilename()
 
 	return &Config{
-		Server:                serverURL,
-		Token:                 token,
-		Namespace:             ns,
-		CAData:                caData,
-		InsecureSkipTLSVerify: insecure,
-		KubeconfigPath:        kubeconfigPath,
+		Token:          token,
+		KubeconfigPath: kubeconfigPath,
 	}, nil
 }

@@ -9,18 +9,18 @@ import (
 	"campfire/pkg/ui"
 
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 var (
-	setServer    string
-	setToken     string
-	setNamespace string
+	setToken      string
+	setKubeconfig string
 )
 
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "View or update Campfire configuration (~/.config/campfire/config.json)",
-	Long:  `Inspects or sets active API token, server endpoint, and scoped namespace.`,
+	Long:  `Inspects or sets active API token and kubeconfig path.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, path, err := config.Load(cfgPath)
 		if err != nil {
@@ -45,29 +45,36 @@ var configCmd = &cobra.Command{
 			}
 		}
 
-		serverDisplay := cfg.Server
-		if serverDisplay == "" {
-			serverDisplay = "(from kubeconfig)"
+		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+		kubePath := os.Getenv("KUBECONFIG")
+		kubeSource := ""
+		if kubePath != "" {
+			kubeSource = " " + ui.MutedStyle.Render("(from $KUBECONFIG)")
+			loadingRules.ExplicitPath = kubePath
+		} else if cfg.KubeconfigPath != "" {
+			kubePath = cfg.KubeconfigPath
+			kubeSource = " " + ui.MutedStyle.Render("(from config)")
+			loadingRules.ExplicitPath = kubePath
+		}
+		clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
+
+		serverDisplay := "(from kubeconfig)"
+		if rc, err := clientConfig.ClientConfig(); err == nil && rc.Host != "" {
+			serverDisplay = rc.Host
 		}
 
 		activeNS := config.ResolveNamespace(namespaceFlag, cfg)
 		source := "(from context)"
 		if namespaceFlag != "" {
 			source = "(from -n flag)"
-		} else if cfg.Namespace != "" {
-			source = "(from config)"
 		}
 
 		ui.Info("Campfire Configuration (%s):", path)
 		fmt.Printf("  • %-15s: %s %s\n", "Namespace", ui.TitleStyle.Render(activeNS), ui.MutedStyle.Render(source))
 		fmt.Printf("  • %-15s: %s\n", "API Server", serverDisplay)
 		fmt.Printf("  • %-15s: %s\n", "API Token", tokenDisplay)
-		if cfg.KubeconfigPath != "" {
-			source := ""
-			if os.Getenv("KUBECONFIG") != "" {
-				source = " " + ui.MutedStyle.Render("(from $KUBECONFIG)")
-			}
-			fmt.Printf("  • %-15s: %s%s\n", "Kubeconfig", cfg.KubeconfigPath, source)
+		if kubePath != "" {
+			fmt.Printf("  • %-15s: %s%s\n", "Kubeconfig", kubePath, kubeSource)
 		}
 		return nil
 	},
@@ -79,8 +86,8 @@ var configSetCmd = &cobra.Command{
 	Example: `  # Set user API token
   campfire config set --token eyJhbGciOi...
 
-  # Set scoped namespace
-  campfire config set --namespace user-alice`,
+  # Set default kubeconfig path
+  campfire config set --kubeconfig ~/.kube/custom-config`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, path, err := config.Load(cfgPath)
 		if err != nil {
@@ -88,21 +95,17 @@ var configSetCmd = &cobra.Command{
 		}
 
 		updated := false
-		if cmd.Flags().Changed("namespace") {
-			cfg.Namespace = setNamespace
-			updated = true
-		}
 		if cmd.Flags().Changed("token") {
 			cfg.Token = strings.TrimSpace(setToken)
 			updated = true
 		}
-		if cmd.Flags().Changed("server") {
-			cfg.Server = strings.TrimSpace(setServer)
+		if cmd.Flags().Changed("kubeconfig") {
+			cfg.KubeconfigPath = strings.TrimSpace(setKubeconfig)
 			updated = true
 		}
 
 		if !updated {
-			return fmt.Errorf("no settings provided; specify at least one of --token, --namespace, --server")
+			return fmt.Errorf("no settings provided; specify at least one of --token, --kubeconfig")
 		}
 
 		if err := config.Save(path, cfg); err != nil {
@@ -115,9 +118,8 @@ var configSetCmd = &cobra.Command{
 }
 
 func init() {
-	configSetCmd.Flags().StringVar(&setNamespace, "namespace", "", "Set the scoped user namespace")
 	configSetCmd.Flags().StringVar(&setToken, "token", "", "Set the Kubernetes API bearer token")
-	configSetCmd.Flags().StringVar(&setServer, "server", "", "Set the Kubernetes API server URL")
+	configSetCmd.Flags().StringVar(&setKubeconfig, "kubeconfig", "", "Set the default kubeconfig path")
 
 	configCmd.AddCommand(configSetCmd)
 	RootCmd.AddCommand(configCmd)

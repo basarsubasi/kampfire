@@ -468,3 +468,87 @@ func TestE2E_PortForward(t *testing.T) {
 		t.Errorf("expected response to contain 'hello-campfire', got: %s", respBody)
 	}
 }
+
+// TestE2E_ConfigSetTokenAndKubeconfig tests configuring token and kubeconfig via campfire config set,
+// and verifies that environment variables (CAMPFIRE_API_TOKEN, KUBECONFIG) take precedence.
+func TestE2E_ConfigSetTokenAndKubeconfig(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	sa := "config-tester"
+
+	// 1. Setup ServiceAccount with campfire-user ClusterRole
+	cmd := exec.Command("kubectl", "create", "serviceaccount", sa, "-n", ns)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to create ServiceAccount: %s", string(out))
+	}
+	cmd = exec.Command("kubectl", "create", "rolebinding", sa+"-campfire",
+		"--clusterrole=campfire-user",
+		fmt.Sprintf("--serviceaccount=%s:%s", ns, sa),
+		"-n", ns)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to create RoleBinding: %s", string(out))
+	}
+	cmd = exec.Command("kubectl", "create", "token", sa, "-n", ns, "--duration=1h")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("failed to mint token: %s", string(out))
+	}
+	validToken := strings.TrimSpace(string(out))
+
+	tempDir := t.TempDir()
+	tempCfg := filepath.Join(tempDir, "config.json")
+
+	// 2. Set token via config set --token
+	setOut, err := runCampfire(t, "config", "set", "--token", validToken, "--config", tempCfg)
+	if err != nil {
+		t.Fatalf("failed to set token via config: %s (err: %v)", setOut, err)
+	}
+
+	// 3. Verify campfire config shows token (from config)
+	cfgOut, err := runCampfireWithEnv(t, []string{"CAMPFIRE_API_TOKEN="}, "config", "--config", tempCfg)
+	if err != nil || !strings.Contains(cfgOut, "(from config)") {
+		t.Fatalf("expected token (from config), got: %s", cfgOut)
+	}
+
+	// 4. Verify campfire operations succeed using the configured token
+	psOut, err := runCampfireWithEnv(t, []string{"CAMPFIRE_API_TOKEN="}, "-n", ns, "--config", tempCfg, "ps")
+	if err != nil {
+		t.Fatalf("ps failed using configured token: %s (err: %v)", psOut, err)
+	}
+
+	// 5. Verify CAMPFIRE_API_TOKEN env var takes precedence over config
+	bogusEnv := []string{"CAMPFIRE_API_TOKEN=bogus-invalid-token-12345"}
+	unauthOut, err := runCampfireWithEnv(t, bogusEnv, "-n", ns, "--config", tempCfg, "ps")
+	if err == nil {
+		t.Fatalf("expected bogus CAMPFIRE_API_TOKEN to override config token and fail, but succeeded: %s", unauthOut)
+	}
+	if !strings.Contains(unauthOut, "Unauthorized") && !strings.Contains(unauthOut, "401") && !strings.Contains(unauthOut, "invalid bearer token") {
+		t.Errorf("expected 401 error when env var overrides config, got: %s", unauthOut)
+	}
+
+	// 6. Test kubeconfig set and precedence
+	currentKubeconfig := os.Getenv("KUBECONFIG")
+	if currentKubeconfig == "" {
+		home, _ := os.UserHomeDir()
+		currentKubeconfig = filepath.Join(home, ".kube", "config")
+	}
+
+	// Set valid kubeconfig path in config
+	setKubeOut, err := runCampfire(t, "config", "set", "--kubeconfig", currentKubeconfig, "--config", tempCfg)
+	if err != nil {
+		t.Fatalf("failed to set kubeconfig via config: %s (err: %v)", setKubeOut, err)
+	}
+
+	// Verify campfire config shows kubeconfig (from config) when KUBECONFIG env var is unset
+	cfgKubeOut, err := runCampfireWithEnv(t, []string{"KUBECONFIG=", "CAMPFIRE_API_TOKEN="}, "config", "--config", tempCfg)
+	if err != nil || !strings.Contains(cfgKubeOut, "(from config)") {
+		t.Fatalf("expected kubeconfig (from config), got: %s", cfgKubeOut)
+	}
+
+	// Verify KUBECONFIG env var takes precedence when exported
+	nonExistentKube := filepath.Join(tempDir, "non-existent-kubeconfig")
+	envOverrideOut, err := runCampfireWithEnv(t, []string{"KUBECONFIG=" + nonExistentKube, "CAMPFIRE_API_TOKEN="}, "-n", ns, "--config", tempCfg, "ps")
+	if err == nil {
+		t.Fatalf("expected non-existent KUBECONFIG env var to override config and fail, but succeeded: %s", envOverrideOut)
+	}
+}
