@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"campfire/pkg/k8s"
+	"github.com/basarsubasi/kampfire/pkg/k8s"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -70,7 +70,7 @@ func Create(ctx context.Context, client *k8s.Client, name, image string, command
 	}
 
 	labels := map[string]interface{}{
-		"agents.x-k8s.io/created-by": "campfire",
+		"agents.x-k8s.io/created-by": "kampfire",
 	}
 
 	obj := &unstructured.Unstructured{

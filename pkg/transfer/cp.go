@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"campfire/pkg/k8s"
-	"campfire/pkg/sandbox"
-	"campfire/pkg/terminal"
+	"github.com/basarsubasi/kampfire/pkg/k8s"
+	"github.com/basarsubasi/kampfire/pkg/sandbox"
+	"github.com/basarsubasi/kampfire/pkg/terminal"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -291,7 +291,7 @@ func InjectSSHKeys(ctx context.Context, client *k8s.Client, podName string) erro
 	destDir := fmt.Sprintf("%s/.ssh", remoteHome)
 
 	// 2. Stage files into a clean temporary directory with proper permissions
-	tempStaging, err := os.MkdirTemp("", "campfire-ssh-*")
+	tempStaging, err := os.MkdirTemp("", "kampfire-ssh-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temporary staging directory: %w", err)
 	}

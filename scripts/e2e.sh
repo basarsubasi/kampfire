@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CLUSTER_NAME="campfire-e2e"
-KUBECONFIG_FILE="/tmp/campfire-e2e-kubeconfig"
+CLUSTER_NAME="kampfire-e2e"
+KUBECONFIG_FILE="/tmp/kampfire-e2e-kubeconfig"
 VERSION="${AGENT_SANDBOX_VERSION:-v1.0.0}"
 KIND_BIN="${KIND_BIN:-./bin/kind}"
 
@@ -37,7 +37,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "🔥 ==================================================="
-echo "🔥 Campfire E2E Test Runner (KinD)"
+echo "🔥 Kampfire E2E Test Runner (KinD)"
 echo "🔥 ==================================================="
 
 echo "==> Spinning up fresh KinD cluster: $CLUSTER_NAME..."
@@ -53,7 +53,7 @@ echo "==> Waiting for agent-sandbox-controller to be ready..."
 kubectl wait --for=condition=Available deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
 
 echo "==> Building campfire binary..."
-go build -o bin/campfire .
+go build -o bin/kampfire .
 
 echo "==> Executing E2E Test Suite in Parallel..."
 go test -v -parallel 8 -timeout 10m ./test/e2e/...

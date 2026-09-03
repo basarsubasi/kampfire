@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"campfire/pkg/config"
-	"campfire/pkg/ui"
+	"github.com/basarsubasi/kampfire/pkg/config"
+	"github.com/basarsubasi/kampfire/pkg/ui"
 
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/tools/clientcmd"
@@ -19,7 +19,7 @@ var (
 
 var configCmd = &cobra.Command{
 	Use:   "config",
-	Short: "View or update Campfire configuration (~/.config/campfire/config.json)",
+	Short: "View or update Campfire configuration (~/.config/kampfire/config.json)",
 	Long:  `Inspects or sets active API token and kubeconfig path.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, path, err := config.Load(cfgPath)
@@ -27,9 +27,12 @@ var configCmd = &cobra.Command{
 			return err
 		}
 
-		token := os.Getenv("CAMPFIRE_API_TOKEN")
+		token := os.Getenv("KAMPFIRE_API_TOKEN")
 		tokenSource := ""
 		if token != "" {
+			tokenSource = " " + ui.MutedStyle.Render("(from $KAMPFIRE_API_TOKEN)")
+		} else if legacyToken := os.Getenv("CAMPFIRE_API_TOKEN"); legacyToken != "" {
+			token = legacyToken
 			tokenSource = " " + ui.MutedStyle.Render("(from $CAMPFIRE_API_TOKEN)")
 		} else if cfg.Token != "" {
 			token = cfg.Token
@@ -69,7 +72,7 @@ var configCmd = &cobra.Command{
 			source = "(from -n flag)"
 		}
 
-		ui.Info("Campfire Configuration (%s):", path)
+		ui.Info("Kampfire Configuration (%s):", path)
 		fmt.Printf("  • %-15s: %s %s\n", "Namespace", ui.TitleStyle.Render(activeNS), ui.MutedStyle.Render(source))
 		fmt.Printf("  • %-15s: %s\n", "API Server", serverDisplay)
 		fmt.Printf("  • %-15s: %s\n", "API Token", tokenDisplay)
@@ -84,10 +87,10 @@ var configSetCmd = &cobra.Command{
 	Use:   "set",
 	Short: "Set configuration parameters",
 	Example: `  # Set user API token
-  campfire config set --token eyJhbGciOi...
+  kampfire config set --token eyJhbGciOi...
 
   # Set default kubeconfig path
-  campfire config set --kubeconfig ~/.kube/custom-config`,
+  kampfire config set --kubeconfig ~/.kube/custom-config`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, path, err := config.Load(cfgPath)
 		if err != nil {

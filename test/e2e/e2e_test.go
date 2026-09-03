@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	campfireBin string
+	kampfireBin string
 	nsCounter   int64
 )
 
@@ -25,7 +25,7 @@ const campfireUserClusterRole = `
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: campfire-user
+  name: kampfire-user
 rules:
   - apiGroups: ["agents.x-k8s.io"]
     resources: ["sandboxes"]
@@ -49,29 +49,29 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	campfireBin = filepath.Join(root, "bin", "campfire")
+	kampfireBin = filepath.Join(root, "bin", "kampfire")
 
 	// 1. Ensure campfire binary is compiled
-	build := exec.Command("go", "build", "-o", campfireBin, root)
+	build := exec.Command("go", "build", "-o", kampfireBin, root)
 	if out, err := build.CombinedOutput(); err != nil {
 		fmt.Printf("failed to build campfire binary: %s\n", string(out))
 		os.Exit(1)
 	}
 
-	// 2. Ensure campfire-user ClusterRole is applied to cluster
+	// 2. Ensure kampfire-user ClusterRole is applied to cluster
 	applyRole := exec.Command("kubectl", "apply", "-f", "-")
 	applyRole.Stdin = strings.NewReader(campfireUserClusterRole)
 	if out, err := applyRole.CombinedOutput(); err != nil {
-		fmt.Printf("warning: failed to apply campfire-user ClusterRole: %s\n", string(out))
+		fmt.Printf("warning: failed to apply kampfire-user ClusterRole: %s\n", string(out))
 	}
 
 	os.Exit(m.Run())
 }
 
-// runCampfireWithEnv executes the campfire CLI with optional environment variables.
-func runCampfireWithEnv(t *testing.T, env []string, args ...string) (string, error) {
+// runKampfireWithEnv executes the campfire CLI with optional environment variables.
+func runKampfireWithEnv(t *testing.T, env []string, args ...string) (string, error) {
 	t.Helper()
-	cmd := exec.Command(campfireBin, args...)
+	cmd := exec.Command(kampfireBin, args...)
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
@@ -83,9 +83,9 @@ func runCampfireWithEnv(t *testing.T, env []string, args ...string) (string, err
 	return output, err
 }
 
-// runCampfire executes the campfire CLI with standard environment.
-func runCampfire(t *testing.T, args ...string) (string, error) {
-	return runCampfireWithEnv(t, nil, args...)
+// runKampfire executes the campfire CLI with standard environment.
+func runKampfire(t *testing.T, args ...string) (string, error) {
+	return runKampfireWithEnv(t, nil, args...)
 }
 
 // setupNamespace creates a unique ephemeral namespace with atomic collision-free naming and registers cleanup.
@@ -116,13 +116,13 @@ func TestE2E_RBACAndTokenAuth(t *testing.T) {
 	boxAlice := "alice-box"
 	boxBob := "bob-box"
 
-	// 1. Setup Tenant Alice with campfire-user ClusterRole
+	// 1. Setup Tenant Alice with kampfire-user ClusterRole
 	cmd := exec.Command("kubectl", "create", "serviceaccount", saAlice, "-n", nsAlice)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("failed to create Alice ServiceAccount: %s", string(out))
 	}
 	cmd = exec.Command("kubectl", "create", "rolebinding", saAlice+"-campfire",
-		"--clusterrole=campfire-user",
+		"--clusterrole=kampfire-user",
 		fmt.Sprintf("--serviceaccount=%s:%s", nsAlice, saAlice),
 		"-n", nsAlice)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -134,33 +134,33 @@ func TestE2E_RBACAndTokenAuth(t *testing.T) {
 		t.Fatalf("failed to mint Alice token: %s", string(out))
 	}
 	aliceToken := strings.TrimSpace(string(out))
-	aliceEnv := []string{"CAMPFIRE_API_TOKEN=" + aliceToken}
+	aliceEnv := []string{"KAMPFIRE_API_TOKEN=" + aliceToken}
 
 	// 2. Setup a sandbox in Tenant Bob's namespace using admin credentials
-	_, err = runCampfire(t, "-n", nsBob, "run", "--name", boxBob, "--image", "alpine", "-d")
+	_, err = runKampfire(t, "-n", nsBob, "run", "--name", boxBob, "--image", "alpine", "-d")
 	if err != nil {
 		t.Fatalf("failed to setup Bob sandbox: %v", err)
 	}
 
 	// --- Scenario A: Authorized operations for Alice in nsAlice ---
-	runOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsAlice, "run", "--name", boxAlice, "--image", "alpine", "-d")
+	runOut, err := runKampfireWithEnv(t, aliceEnv, "-n", nsAlice, "run", "--name", boxAlice, "--image", "alpine", "-d")
 	if err != nil {
 		t.Fatalf("Alice run with token failed in her own namespace: %s (err: %v)", runOut, err)
 	}
 
-	execOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsAlice, "exec", boxAlice, "echo", "token-authenticated")
+	execOut, err := runKampfireWithEnv(t, aliceEnv, "-n", nsAlice, "exec", boxAlice, "echo", "token-authenticated")
 	if err != nil || !strings.Contains(execOut, "token-authenticated") {
 		t.Fatalf("Alice exec with token failed: %s (err: %v)", execOut, err)
 	}
 
-	psOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsAlice, "ps")
+	psOut, err := runKampfireWithEnv(t, aliceEnv, "-n", nsAlice, "ps")
 	if err != nil || !strings.Contains(psOut, boxAlice) {
 		t.Fatalf("Alice ps with token failed: %s (err: %v)", psOut, err)
 	}
 
 	// --- Scenario B: Unauthenticated operation with bogus token (401 Unauthorized) ---
-	bogusEnv := []string{"CAMPFIRE_API_TOKEN=bogus-invalid-token-12345"}
-	unauthOut, err := runCampfireWithEnv(t, bogusEnv, "-n", nsAlice, "ps")
+	bogusEnv := []string{"KAMPFIRE_API_TOKEN=bogus-invalid-token-12345"}
+	unauthOut, err := runKampfireWithEnv(t, bogusEnv, "-n", nsAlice, "ps")
 	if err == nil {
 		t.Fatalf("expected bogus token to fail with 401 Unauthorized, but succeeded: %s", unauthOut)
 	}
@@ -173,9 +173,9 @@ func TestE2E_RBACAndTokenAuth(t *testing.T) {
 	_ = exec.Command("kubectl", "create", "serviceaccount", saUnpriv, "-n", nsAlice).Run()
 	tokenCmd := exec.Command("kubectl", "create", "token", saUnpriv, "-n", nsAlice, "--duration=1h")
 	tokenOut, _ := tokenCmd.CombinedOutput()
-	unprivEnv := []string{"CAMPFIRE_API_TOKEN=" + strings.TrimSpace(string(tokenOut))}
+	unprivEnv := []string{"KAMPFIRE_API_TOKEN=" + strings.TrimSpace(string(tokenOut))}
 
-	noRoleOut, err := runCampfireWithEnv(t, unprivEnv, "-n", nsAlice, "ps")
+	noRoleOut, err := runKampfireWithEnv(t, unprivEnv, "-n", nsAlice, "ps")
 	if err == nil {
 		t.Fatalf("expected unprivileged account to fail with 403 Forbidden, but succeeded: %s", noRoleOut)
 	}
@@ -185,7 +185,7 @@ func TestE2E_RBACAndTokenAuth(t *testing.T) {
 
 	// --- Scenario D: Cross-Tenant Isolation (Alice trying to access or tamper with Bob's namespace) ---
 	// 1. Alice tries to list Bob's sandboxes -> 403 Forbidden
-	crossPsOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsBob, "ps")
+	crossPsOut, err := runKampfireWithEnv(t, aliceEnv, "-n", nsBob, "ps")
 	if err == nil {
 		t.Fatalf("Alice should not be able to list Bob's sandboxes, but succeeded: %s", crossPsOut)
 	}
@@ -194,7 +194,7 @@ func TestE2E_RBACAndTokenAuth(t *testing.T) {
 	}
 
 	// 2. Alice tries to exec into Bob's sandbox -> 403 Forbidden
-	crossExecOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsBob, "exec", boxBob, "uname", "-a")
+	crossExecOut, err := runKampfireWithEnv(t, aliceEnv, "-n", nsBob, "exec", boxBob, "uname", "-a")
 	if err == nil {
 		t.Fatalf("Alice should not be able to exec into Bob's sandbox, but succeeded: %s", crossExecOut)
 	}
@@ -203,7 +203,7 @@ func TestE2E_RBACAndTokenAuth(t *testing.T) {
 	}
 
 	// 3. Alice tries to delete Bob's sandbox -> 403 Forbidden
-	crossRmOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsBob, "rm", boxBob)
+	crossRmOut, err := runKampfireWithEnv(t, aliceEnv, "-n", nsBob, "rm", boxBob)
 	if err == nil {
 		t.Fatalf("Alice should not be able to delete Bob's sandbox, but succeeded: %s", crossRmOut)
 	}
@@ -212,7 +212,7 @@ func TestE2E_RBACAndTokenAuth(t *testing.T) {
 	}
 
 	// 4. Alice tries to port-forward Bob's sandbox -> 403 Forbidden
-	crossPfOut, err := runCampfireWithEnv(t, aliceEnv, "-n", nsBob, "port-forward", boxBob, "9999:80")
+	crossPfOut, err := runKampfireWithEnv(t, aliceEnv, "-n", nsBob, "port-forward", boxBob, "9999:80")
 	if err == nil {
 		t.Fatalf("Alice should not be able to port-forward Bob's sandbox, but succeeded: %s", crossPfOut)
 	}
@@ -228,7 +228,7 @@ func TestE2E_RunAndExec(t *testing.T) {
 	boxName := "exec-box"
 
 	// 1. Run sandbox in detached mode
-	out, err := runCampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	out, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
 	if err != nil {
 		t.Fatalf("campfire run failed: %s (err: %v)", out, err)
 	}
@@ -237,7 +237,7 @@ func TestE2E_RunAndExec(t *testing.T) {
 	}
 
 	// 2. Exec command inside sandbox
-	out, err = runCampfire(t, "-n", ns, "exec", boxName, "uname", "-a")
+	out, err = runKampfire(t, "-n", ns, "exec", boxName, "uname", "-a")
 	if err != nil {
 		t.Fatalf("campfire exec failed: %s (err: %v)", out, err)
 	}
@@ -253,13 +253,13 @@ func TestE2E_PSTableAndShortIDs(t *testing.T) {
 	boxName := "ps-box"
 
 	// Create sandbox
-	_, err := runCampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	_, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
 	if err != nil {
 		t.Fatalf("campfire run failed: %v", err)
 	}
 
 	// 1. Check ps table output
-	out, err := runCampfire(t, "-n", ns, "ps")
+	out, err := runKampfire(t, "-n", ns, "ps")
 	if err != nil {
 		t.Fatalf("campfire ps failed: %s", out)
 	}
@@ -273,7 +273,7 @@ func TestE2E_PSTableAndShortIDs(t *testing.T) {
 	}
 
 	// 2. Check ps -q output returns 12-char short ID
-	out, err = runCampfire(t, "-n", ns, "ps", "-q")
+	out, err = runKampfire(t, "-n", ns, "ps", "-q")
 	if err != nil {
 		t.Fatalf("campfire ps -q failed: %s", out)
 	}
@@ -283,7 +283,7 @@ func TestE2E_PSTableAndShortIDs(t *testing.T) {
 	}
 
 	// 3. Verify exec works using short ID
-	out, err = runCampfire(t, "-n", ns, "exec", shortID, "echo", "verified-short-id")
+	out, err = runKampfire(t, "-n", ns, "exec", shortID, "echo", "verified-short-id")
 	if err != nil || !strings.Contains(out, "verified-short-id") {
 		t.Fatalf("campfire exec with short ID failed: %s (err: %v)", out, err)
 	}
@@ -295,7 +295,7 @@ func TestE2E_Copy(t *testing.T) {
 	ns := setupNamespace(t)
 	boxName := "cp-box"
 
-	_, err := runCampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	_, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
 	if err != nil {
 		t.Fatalf("failed to provision sandbox: %v", err)
 	}
@@ -309,20 +309,20 @@ func TestE2E_Copy(t *testing.T) {
 
 	// 2. Copy local -> sandbox
 	remotePath := fmt.Sprintf("%s:/tmp/remote-file.txt", boxName)
-	out, err := runCampfire(t, "-n", ns, "cp", localSrc, remotePath)
+	out, err := runKampfire(t, "-n", ns, "cp", localSrc, remotePath)
 	if err != nil {
 		t.Fatalf("campfire cp to sandbox failed: %s (err: %v)", out, err)
 	}
 
 	// 3. Verify file content inside container
-	out, err = runCampfire(t, "-n", ns, "exec", boxName, "cat", "/tmp/remote-file.txt")
+	out, err = runKampfire(t, "-n", ns, "exec", boxName, "cat", "/tmp/remote-file.txt")
 	if err != nil || !strings.Contains(out, testData) {
 		t.Fatalf("content inside sandbox did not match: %s", out)
 	}
 
 	// 4. Copy sandbox -> local
 	localDest := filepath.Join(t.TempDir(), "downloaded-file.txt")
-	out, err = runCampfire(t, "-n", ns, "cp", remotePath, localDest)
+	out, err = runKampfire(t, "-n", ns, "cp", remotePath, localDest)
 	if err != nil {
 		t.Fatalf("campfire cp from sandbox failed: %s (err: %v)", out, err)
 	}
@@ -342,10 +342,10 @@ func TestE2E_Remove(t *testing.T) {
 	ns := setupNamespace(t)
 	boxName := "rm-box"
 
-	_, _ = runCampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	_, _ = runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
 
 	// Remove sandbox
-	out, err := runCampfire(t, "-n", ns, "rm", boxName)
+	out, err := runKampfire(t, "-n", ns, "rm", boxName)
 	if err != nil {
 		t.Fatalf("campfire rm failed: %s (err: %v)", out, err)
 	}
@@ -354,7 +354,7 @@ func TestE2E_Remove(t *testing.T) {
 	}
 
 	// Verify ps reflects empty namespace
-	out, _ = runCampfire(t, "-n", ns, "ps")
+	out, _ = runKampfire(t, "-n", ns, "ps")
 	if !strings.Contains(out, "No sandboxes found") {
 		t.Errorf("expected 'No sandboxes found', got: %s", out)
 	}
@@ -368,14 +368,14 @@ func TestE2E_PortForward(t *testing.T) {
 	boxName := "pf-box"
 
 	// 1. Run sandbox
-	_, err := runCampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	_, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
 	if err != nil {
 		t.Fatalf("failed to run sandbox: %v", err)
 	}
 
 	// 2. Start a simple HTTP listener inside sandbox using busybox nc
 	startServerScript := `nohup sh -c 'while true; do echo -e "HTTP/1.1 200 OK\r\nContent-Length: 14\r\n\r\nhello-campfire" | nc -l -p 8080; done' >/dev/null 2>&1 &`
-	_, err = runCampfire(t, "-n", ns, "exec", boxName, "sh", "-c", startServerScript)
+	_, err = runKampfire(t, "-n", ns, "exec", boxName, "sh", "-c", startServerScript)
 	if err != nil {
 		t.Fatalf("failed to start server in container: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestE2E_PortForward(t *testing.T) {
 	l.Close()
 
 	// 4. Start campfire port-forward in background
-	pfCmd := exec.Command(campfireBin, "-n", ns, "port-forward", boxName, fmt.Sprintf("%d:8080", localPort))
+	pfCmd := exec.Command(kampfireBin, "-n", ns, "port-forward", boxName, fmt.Sprintf("%d:8080", localPort))
 	var pfStdout, pfStderr bytes.Buffer
 	pfCmd.Stdout = &pfStdout
 	pfCmd.Stderr = &pfStderr
@@ -433,19 +433,19 @@ func TestE2E_PortForward(t *testing.T) {
 }
 
 // TestE2E_ConfigSetTokenAndKubeconfig tests configuring token and kubeconfig via campfire config set,
-// and verifies that environment variables (CAMPFIRE_API_TOKEN, KUBECONFIG) take precedence.
+// and verifies that environment variables (KAMPFIRE_API_TOKEN, KUBECONFIG) take precedence.
 func TestE2E_ConfigSetTokenAndKubeconfig(t *testing.T) {
 	t.Parallel()
 	ns := setupNamespace(t)
 	sa := "config-tester"
 
-	// 1. Setup ServiceAccount with campfire-user ClusterRole
+	// 1. Setup ServiceAccount with kampfire-user ClusterRole
 	cmd := exec.Command("kubectl", "create", "serviceaccount", sa, "-n", ns)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("failed to create ServiceAccount: %s", string(out))
 	}
 	cmd = exec.Command("kubectl", "create", "rolebinding", sa+"-campfire",
-		"--clusterrole=campfire-user",
+		"--clusterrole=kampfire-user",
 		fmt.Sprintf("--serviceaccount=%s:%s", ns, sa),
 		"-n", ns)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -462,28 +462,28 @@ func TestE2E_ConfigSetTokenAndKubeconfig(t *testing.T) {
 	tempCfg := filepath.Join(tempDir, "config.json")
 
 	// 2. Set token via config set --token
-	setOut, err := runCampfire(t, "config", "set", "--token", validToken, "--config", tempCfg)
+	setOut, err := runKampfire(t, "config", "set", "--token", validToken, "--config", tempCfg)
 	if err != nil {
 		t.Fatalf("failed to set token via config: %s (err: %v)", setOut, err)
 	}
 
 	// 3. Verify campfire config shows token (from config)
-	cfgOut, err := runCampfireWithEnv(t, []string{"CAMPFIRE_API_TOKEN="}, "config", "--config", tempCfg)
+	cfgOut, err := runKampfireWithEnv(t, []string{"KAMPFIRE_API_TOKEN="}, "config", "--config", tempCfg)
 	if err != nil || !strings.Contains(cfgOut, "(from config)") {
 		t.Fatalf("expected token (from config), got: %s", cfgOut)
 	}
 
 	// 4. Verify campfire operations succeed using the configured token
-	psOut, err := runCampfireWithEnv(t, []string{"CAMPFIRE_API_TOKEN="}, "-n", ns, "--config", tempCfg, "ps")
+	psOut, err := runKampfireWithEnv(t, []string{"KAMPFIRE_API_TOKEN="}, "-n", ns, "--config", tempCfg, "ps")
 	if err != nil {
 		t.Fatalf("ps failed using configured token: %s (err: %v)", psOut, err)
 	}
 
-	// 5. Verify CAMPFIRE_API_TOKEN env var takes precedence over config
-	bogusEnv := []string{"CAMPFIRE_API_TOKEN=bogus-invalid-token-12345"}
-	unauthOut, err := runCampfireWithEnv(t, bogusEnv, "-n", ns, "--config", tempCfg, "ps")
+	// 5. Verify KAMPFIRE_API_TOKEN env var takes precedence over config
+	bogusEnv := []string{"KAMPFIRE_API_TOKEN=bogus-invalid-token-12345"}
+	unauthOut, err := runKampfireWithEnv(t, bogusEnv, "-n", ns, "--config", tempCfg, "ps")
 	if err == nil {
-		t.Fatalf("expected bogus CAMPFIRE_API_TOKEN to override config token and fail, but succeeded: %s", unauthOut)
+		t.Fatalf("expected bogus KAMPFIRE_API_TOKEN to override config token and fail, but succeeded: %s", unauthOut)
 	}
 	if !strings.Contains(unauthOut, "Unauthorized") && !strings.Contains(unauthOut, "401") && !strings.Contains(unauthOut, "invalid bearer token") {
 		t.Errorf("expected 401 error when env var overrides config, got: %s", unauthOut)
@@ -497,20 +497,20 @@ func TestE2E_ConfigSetTokenAndKubeconfig(t *testing.T) {
 	}
 
 	// Set valid kubeconfig path in config
-	setKubeOut, err := runCampfire(t, "config", "set", "--kubeconfig", currentKubeconfig, "--config", tempCfg)
+	setKubeOut, err := runKampfire(t, "config", "set", "--kubeconfig", currentKubeconfig, "--config", tempCfg)
 	if err != nil {
 		t.Fatalf("failed to set kubeconfig via config: %s (err: %v)", setKubeOut, err)
 	}
 
 	// Verify campfire config shows kubeconfig (from config) when KUBECONFIG env var is unset
-	cfgKubeOut, err := runCampfireWithEnv(t, []string{"KUBECONFIG=", "CAMPFIRE_API_TOKEN="}, "config", "--config", tempCfg)
+	cfgKubeOut, err := runKampfireWithEnv(t, []string{"KUBECONFIG=", "KAMPFIRE_API_TOKEN="}, "config", "--config", tempCfg)
 	if err != nil || !strings.Contains(cfgKubeOut, "(from config)") {
 		t.Fatalf("expected kubeconfig (from config), got: %s", cfgKubeOut)
 	}
 
 	// Verify KUBECONFIG env var takes precedence when exported
 	nonExistentKube := filepath.Join(tempDir, "non-existent-kubeconfig")
-	envOverrideOut, err := runCampfireWithEnv(t, []string{"KUBECONFIG=" + nonExistentKube, "CAMPFIRE_API_TOKEN="}, "-n", ns, "--config", tempCfg, "ps")
+	envOverrideOut, err := runKampfireWithEnv(t, []string{"KUBECONFIG=" + nonExistentKube, "KAMPFIRE_API_TOKEN="}, "-n", ns, "--config", tempCfg, "ps")
 	if err == nil {
 		t.Fatalf("expected non-existent KUBECONFIG env var to override config and fail, but succeeded: %s", envOverrideOut)
 	}
@@ -532,7 +532,7 @@ func TestE2E_ConfigSetTokenAndKubeconfig(t *testing.T) {
 	}
 
 	// 8. Verify campfire config displays active Server and Namespace dynamically from kubeconfig context
-	viewOut, err := runCampfire(t, "config", "--config", tempCfg)
+	viewOut, err := runKampfire(t, "config", "--config", tempCfg)
 	if err != nil {
 		t.Fatalf("failed to view config: %s (err: %v)", viewOut, err)
 	}
@@ -548,13 +548,13 @@ func TestE2E_RunWithPrivateSSHKeys(t *testing.T) {
 	ns := setupNamespace(t)
 	boxName := "ssh-box"
 
-	out, err := runCampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "--with-private-ssh-keys", "-d")
+	out, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "--with-private-ssh-keys", "-d")
 	if err != nil {
 		t.Fatalf("failed to run with --with-private-ssh-keys: %s (err: %v)", out, err)
 	}
 
 	// Verify that ~/.ssh exists inside the container and files were copied
-	lsOut, err := runCampfire(t, "-n", ns, "exec", boxName, "ls", "-la", "/root/.ssh")
+	lsOut, err := runKampfire(t, "-n", ns, "exec", boxName, "ls", "-la", "/root/.ssh")
 	if err != nil {
 		t.Fatalf("exec ls ~/.ssh failed: %s (err: %v)", lsOut, err)
 	}
@@ -564,7 +564,7 @@ func TestE2E_RunWithPrivateSSHKeys(t *testing.T) {
 	}
 
 	// Verify permissions on .ssh dir
-	statOut, err := runCampfire(t, "-n", ns, "exec", boxName, "stat", "-c", "%a", "/root/.ssh")
+	statOut, err := runKampfire(t, "-n", ns, "exec", boxName, "stat", "-c", "%a", "/root/.ssh")
 	if err == nil {
 		perm := strings.TrimSpace(statOut)
 		if perm != "700" {
@@ -580,7 +580,7 @@ func TestE2E_RunCloneRepo(t *testing.T) {
 	boxName := "git-box"
 
 	// In plain alpine without git installed, campfire should report that git clone was attempted and failed
-	out, err := runCampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "--clone-repo", "https://github.com/example/repo.git", "-d")
+	out, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "--clone-repo", "https://github.com/example/repo.git", "-d")
 	if err == nil {
 		t.Fatalf("expected alpine without git to fail cloning, but succeeded: %s", out)
 	}

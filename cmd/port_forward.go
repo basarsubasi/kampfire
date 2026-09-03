@@ -9,8 +9,8 @@ import (
 	"strings"
 	"syscall"
 
-	"campfire/pkg/sandbox"
-	"campfire/pkg/ui"
+	"github.com/basarsubasi/kampfire/pkg/sandbox"
+	"github.com/basarsubasi/kampfire/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -23,13 +23,13 @@ var portForwardCmd = &cobra.Command{
 Supports multiple port pairs in the format [LOCAL_PORT:]REMOTE_PORT.
 If only REMOTE_PORT is specified (e.g. 8080), LOCAL_PORT defaults to the same value.`,
 	Example: `  # Forward local port 8080 to container port 80
-  campfire port-forward my-sandbox 8080:80
+  kampfire port-forward my-sandbox 8080:80
 
   # Forward local port 3000 to container port 3000
-  campfire port-forward my-sandbox 3000
+  kampfire port-forward my-sandbox 3000
 
   # Forward multiple ports simultaneously
-  campfire port-forward 0cceb66ac7b7 8080:80 5432:5432`,
+  kampfire port-forward 0cceb66ac7b7 8080:80 5432:5432`,
 	Args: cobra.MinimumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()

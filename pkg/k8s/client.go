@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"campfire/pkg/config"
+	"github.com/basarsubasi/kampfire/pkg/config"
 
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -26,7 +26,7 @@ type Client struct {
 	Namespace  string
 }
 
-// NewClient creates a new Client based on the Campfire configuration and optional CLI namespace override.
+// NewClient creates a new Client based on the Kampfire configuration and optional CLI namespace override.
 func NewClient(cfg *config.Config, namespaceOverride string) (*Client, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	kubeconfig := os.Getenv("KUBECONFIG")
@@ -42,8 +42,8 @@ func NewClient(cfg *config.Config, namespaceOverride string) (*Client, error) {
 		return nil, fmt.Errorf("failed to build kubernetes config: %w", err)
 	}
 
-	// Token override: check CAMPFIRE_API_TOKEN env var or config token
-	token := os.Getenv("CAMPFIRE_API_TOKEN")
+	// Token override: check KAMPFIRE_API_TOKEN / CAMPFIRE_API_TOKEN env var or config token
+	token := os.Getenv("KAMPFIRE_API_TOKEN")
 	if token == "" && cfg != nil {
 		token = cfg.Token
 	}

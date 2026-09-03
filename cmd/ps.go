@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"campfire/pkg/sandbox"
-	"campfire/pkg/ui"
+	"github.com/basarsubasi/kampfire/pkg/sandbox"
+	"github.com/basarsubasi/kampfire/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -21,13 +21,13 @@ var psCmd = &cobra.Command{
 	Short:   "List sandboxes in your configured namespace",
 	Long:    `Displays active sandboxes, their container images, running status, age, and assigned pod IP.`,
 	Example: `  # List running sandboxes
-  campfire ps
+  kampfire ps
 
   # List all sandboxes (including terminating)
-  campfire ps -a
+  kampfire ps -a
 
-  # Output only IDs (useful for scripting: campfire rm $(campfire ps -q))
-  campfire ps -q`,
+  # Output only IDs (useful for scripting: kampfire rm $(kampfire ps -q))
+  kampfire ps -q`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		client, _, err := GetClient()

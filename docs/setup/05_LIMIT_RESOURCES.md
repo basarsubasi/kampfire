@@ -56,13 +56,13 @@ sandbox-quota   count/pods: 1/3, count/sandboxes.agents.x-k8s.io: 1/3   3/3     
 When a user attempts to create a 4th sandbox beyond their limit of 3:
 
 ```bash
-$ campfire run my-extra-box --image alpine
+$ kampfire run my-extra-box --image alpine
 • Provisioning sandbox my-extra-box (alpine)...
 ✗ sandbox limit reached in namespace team-alice (ResourceQuota exceeded)
-  Use 'campfire ps' and 'campfire rm' to free up capacity
+  Use 'kampfire ps' and 'kampfire rm' to free up capacity
 ```
 
-Campfire catches the server-side rejection from Kubernetes and provides clear, actionable instructions to the user.
+Kampfire catches the server-side rejection from Kubernetes and provides clear, actionable instructions to the user.
 
 ---
 

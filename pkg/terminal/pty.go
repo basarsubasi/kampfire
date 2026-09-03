@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"campfire/pkg/k8s"
+	"github.com/basarsubasi/kampfire/pkg/k8s"
 
 	"golang.org/x/term"
 	corev1 "k8s.io/api/core/v1"

@@ -1,6 +1,6 @@
 # Step 1: Install Dependencies (Agent Sandbox CRDs & Controller)
 
-Before Campfire can provision containers, your cluster must have the official Kubernetes SIG **`agent-sandbox`** Custom Resource Definitions (CRDs) and controller installed.
+Before Kampfire can provision containers, your cluster must have the official Kubernetes SIG **`agent-sandbox`** Custom Resource Definitions (CRDs) and controller installed.
 
 ---
 

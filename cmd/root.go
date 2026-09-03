@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"campfire/pkg/config"
-	"campfire/pkg/k8s"
-	"campfire/pkg/ui"
+	"github.com/basarsubasi/kampfire/pkg/config"
+	"github.com/basarsubasi/kampfire/pkg/k8s"
+	"github.com/basarsubasi/kampfire/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -22,9 +22,9 @@ var (
 
 // RootCmd is the base command for campfire.
 var RootCmd = &cobra.Command{
-	Use:   "campfire",
-	Short: "🔥 campfire - Docker-style CLI for Kubernetes Agent Sandboxes",
-	Long: `campfire is a developer-first CLI adhering to Docker conventions on top of
+	Use:   "kampfire",
+	Short: "🔥 kampfire - Docker-style CLI for Kubernetes Agent Sandboxes",
+	Long: `kampfire is a developer-first CLI adhering to Docker conventions on top of
 Kubernetes SIG Agent Sandbox (agents.x-k8s.io).
 
 It manages sandboxes directly within your configured namespace, offering fast provisioning,
@@ -35,7 +35,7 @@ realistic interactive PTY terminal sessions, file transfer, and one-command VS C
 
 func init() {
 	defaultCfg, _ := config.DefaultConfigPath()
-	RootCmd.PersistentFlags().StringVar(&cfgPath, "config", defaultCfg, "path to campfire config file")
+	RootCmd.PersistentFlags().StringVar(&cfgPath, "config", defaultCfg, "path to kampfire config file")
 	RootCmd.PersistentFlags().StringVarP(&namespaceFlag, "namespace", "n", "", "Kubernetes namespace (defaults to config or active context)")
 	RootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose debug logging")
 }
@@ -51,7 +51,7 @@ func GetClient() (*k8s.Client, *config.Config, error) {
 
 	cfg, path, err := config.Load(cfgPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load campfire config: %w", err)
+		return nil, nil, fmt.Errorf("failed to load kampfire config: %w", err)
 	}
 	loadedConfig = cfg
 

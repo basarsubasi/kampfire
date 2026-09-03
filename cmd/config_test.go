@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"campfire/pkg/config"
+	"github.com/basarsubasi/kampfire/pkg/config"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"

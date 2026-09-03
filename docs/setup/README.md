@@ -1,6 +1,6 @@
 # 🚀 Production Cluster Setup Guide
 
-This guide walks cluster administrators through setting up an enterprise-grade, secure, multi-tenant Kubernetes cluster for Campfire and Kubernetes SIG Agent Sandbox.
+This guide walks cluster administrators through setting up an enterprise-grade, secure, multi-tenant Kubernetes cluster for Kampfire and Kubernetes SIG Agent Sandbox.
 
 ---
 
@@ -15,7 +15,7 @@ Follow the guides in sequence:
    Generate non-privileged, cluster-endpoint-only kubeconfigs for developers.
 
 3. **[Step 3: RBAC and Namespaces](03_RBAC_AND_NAMESPACES.md)**
-   Apply the `campfire-user` ClusterRole and create tenant namespaces with scoped RoleBindings.
+   Apply the `kampfire-user` ClusterRole and create tenant namespaces with scoped RoleBindings.
 
 4. **[Step 4: Mint API Tokens](04_MINT_API_TOKENS.md)**
    Mint cryptographically signed ServiceAccount bearer tokens and configure rotation.
@@ -34,8 +34,8 @@ Follow the guides in sequence:
 +-------------------------------------------------------------------+
 |                        DEVELOPER LAPTOP                           |
 |                                                                   |
-|   campfire run my-box --image python:3.12                         |
-|   (Reads campfire-alice.yaml + CAMPFIRE_API_TOKEN)                |
+|   kampfire run my-box --image python:3.12                         |
+|   (Reads kampfire-alice.yaml + KAMPFIRE_API_TOKEN)                |
 +---------------------------------+---------------------------------+
                                   | HTTPS (Bearer Token)
                                   v
@@ -43,7 +43,7 @@ Follow the guides in sequence:
 |                     KUBERNETES CONTROL PLANE                      |
 |                                                                   |
 |   1. Authentication  -> Validates ServiceAccount token (alice)    |
-|   2. Authorization   -> RoleBinding in team-alice (campfire-user) |
+|   2. Authorization   -> RoleBinding in team-alice (kampfire-user) |
 |   3. Admission/Quota -> ResourceQuota checks (max 3 sandboxes)    |
 |   4. Mutation        -> Injects spec.runtimeClassName: kata-fc    |
 +---------------------------------+---------------------------------+

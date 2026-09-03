@@ -8,9 +8,9 @@ By using **Kata Containers with Firecracker (`kata-fc`)**, each sandbox is execu
 
 ## 🎯 Architecture: Cluster-Side Enforcement
 
-Campfire intentionally keeps the developer CLI clean (`campfire run` does not require users to pass `--runtime-class`). 
+Kampfire intentionally keeps the developer CLI clean (`kampfire run` does not require users to pass `--runtime-class`). 
 
-Instead, **Kubernetes enforces `kata-fc` cluster-side** so that every sandbox created by Campfire or Agent Sandbox unconditionally boots in a MicroVM.
+Instead, **Kubernetes enforces `kata-fc` cluster-side** so that every sandbox created by Kampfire or Agent Sandbox unconditionally boots in a MicroVM.
 
 ---
 
@@ -41,7 +41,7 @@ kubectl get runtimeclass
 
 ## 2. Enforce `kata-fc` via Kyverno (Recommended)
 
-Using **Kyverno**, a Kubernetes-native policy engine, you can automatically inject `runtimeClassName: kata-fc` into every sandbox pod created by Campfire:
+Using **Kyverno**, a Kubernetes-native policy engine, you can automatically inject `runtimeClassName: kata-fc` into every sandbox pod created by Kampfire:
 
 ```yaml
 # policy-kata-fc.yaml
@@ -51,7 +51,7 @@ metadata:
   name: enforce-kata-fc-sandboxes
   annotations:
     policies.kyverno.io/title: Enforce Kata Firecracker on Sandboxes
-    policies.kyverno.io/description: Automatically assigns the kata-fc RuntimeClass to all Campfire sandboxes.
+    policies.kyverno.io/description: Automatically assigns the kata-fc RuntimeClass to all Kampfire sandboxes.
 spec:
   rules:
   - name: mutate-runtimeclass
@@ -61,7 +61,7 @@ spec:
         - Pod
         selector:
           matchLabels:
-            agents.x-k8s.io/created-by: campfire
+            agents.x-k8s.io/created-by: kampfire
     mutate:
       patchStrategicMerge:
         spec:
@@ -97,10 +97,10 @@ sudo systemctl restart containerd
 
 ## 4. Verifying MicroVM Isolation
 
-Once a sandbox is started via `campfire run`:
+Once a sandbox is started via `kampfire run`:
 
 ```bash
-campfire run my-box --image alpine -d
+kampfire run my-box --image alpine -d
 ```
 
 Verify that the underlying pod was assigned the `kata-fc` runtime:

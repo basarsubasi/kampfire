@@ -1,6 +1,6 @@
 # Step 4: Mint API Tokens
 
-Campfire authenticates to Kubernetes using cryptographically signed **Bearer Tokens** minted from Kubernetes ServiceAccounts via the official `TokenRequest` API.
+Kampfire authenticates to Kubernetes using cryptographically signed **Bearer Tokens** minted from Kubernetes ServiceAccounts via the official `TokenRequest` API.
 
 ---
 
@@ -26,21 +26,21 @@ eyJhbGciOiJSUzI1NiIsImtpZCI6Ij...
 
 ---
 
-## 2. Setting the Token for Campfire
+## 2. Setting the Token for Kampfire
 
 Users can authenticate using one of the following methods:
 
 ### Method 1: Environment Variable (Recommended for Shell Sessions & CI)
 ```bash
-export CAMPFIRE_API_TOKEN="<minted-token>"
+export KAMPFIRE_API_TOKEN="<minted-token>"
 ```
-Campfire automatically detects this variable and attaches `Authorization: Bearer <token>` to all Kubernetes API calls.
+Kampfire automatically detects this variable and attaches `Authorization: Bearer <token>` to all Kubernetes API calls.
 
 ### Method 2: CLI Configuration
 ```bash
-campfire config set --token "<minted-token>"
+kampfire config set --token "<minted-token>"
 ```
-Stores the token securely in `~/.config/campfire/config.json`.
+Stores the token securely in `~/.config/kampfire/config.json`.
 
 ### Method 3: Embedded in Kubeconfig
 Bake the token into the `users` section of the tenant's kubeconfig (see [Step 2](02_CREATE_TIGHT_KUBECONFIG.md)).
@@ -53,16 +53,16 @@ To test that the token works and is correctly scoped:
 
 ```bash
 # Inspect your active configuration
-campfire config
+kampfire config
 
 # Should display:
-# API Token:       eyJhbG... (from $CAMPFIRE_API_TOKEN)
+# API Token:       eyJhbG... (from $KAMPFIRE_API_TOKEN)
 # Namespace:       team-alice (from context)
 ```
 
 Run a quick status check:
 ```bash
-campfire ps
+kampfire ps
 ```
 
 ---

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"campfire/pkg/sandbox"
-	"campfire/pkg/terminal"
+	"github.com/basarsubasi/kampfire/pkg/sandbox"
+	"github.com/basarsubasi/kampfire/pkg/terminal"
 
 	"github.com/spf13/cobra"
 )
@@ -22,10 +22,10 @@ var execCmd = &cobra.Command{
 	Long: `Runs a command inside an existing, running sandbox container with full PTY support.
 If no command is specified when using -it, defaults to an interactive /bin/sh session.`,
 	Example: `  # Start an interactive shell
-  campfire exec -it my-sandbox /bin/sh
+  kampfire exec -it my-sandbox /bin/sh
 
   # Run a command non-interactively
-  campfire exec my-sandbox uname -a`,
+  kampfire exec my-sandbox uname -a`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()

@@ -9,19 +9,27 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// Config represents the Campfire user configuration.
+// Config represents the Kampfire user configuration.
 type Config struct {
 	Token          string `json:"token,omitempty"`
 	KubeconfigPath string `json:"kubeconfig_path,omitempty"`
 }
 
-// DefaultConfigPath returns ~/.config/campfire/config.json.
+// DefaultConfigPath returns ~/.config/kampfire/config.json (or ~/.config/campfire/config.json if it exists).
 func DefaultConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
-	return filepath.Join(home, ".config", "campfire", "config.json"), nil
+	kampfirePath := filepath.Join(home, ".config", "kampfire", "config.json")
+	if _, err := os.Stat(kampfirePath); err == nil {
+		return kampfirePath, nil
+	}
+	campfirePath := filepath.Join(home, ".config", "campfire", "config.json")
+	if _, err := os.Stat(campfirePath); err == nil {
+		return campfirePath, nil
+	}
+	return kampfirePath, nil
 }
 
 // Load loads the configuration from the given path, or DefaultConfigPath() if path is empty.

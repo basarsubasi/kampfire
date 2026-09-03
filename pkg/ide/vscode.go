@@ -12,9 +12,9 @@ import (
 	"syscall"
 	"time"
 
-	"campfire/pkg/k8s"
-	"campfire/pkg/terminal"
-	"campfire/pkg/ui"
+	"github.com/basarsubasi/kampfire/pkg/k8s"
+	"github.com/basarsubasi/kampfire/pkg/terminal"
+	"github.com/basarsubasi/kampfire/pkg/ui"
 )
 
 const remotePort = 13337

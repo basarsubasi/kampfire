@@ -1,4 +1,4 @@
-module campfire
+module github.com/basarsubasi/kampfire
 
 go 1.26.0
 

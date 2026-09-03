@@ -1,19 +1,19 @@
 # Step 3: RBAC and Namespaces
 
-Campfire delegates 100% of user authentication and authorization to **Kubernetes native RBAC**. Users only possess permissions inside their assigned tenant namespace.
+Kampfire delegates 100% of user authentication and authorization to **Kubernetes native RBAC**. Users only possess permissions inside their assigned tenant namespace.
 
 ---
 
-## 1. Create the `campfire-user` ClusterRole
+## 1. Create the `kampfire-user` ClusterRole
 
-Apply the standard `campfire-user` ClusterRole once to your cluster. This defines the exact set of privileges required to run, list, exec, copy, and port-forward sandboxes:
+Apply the standard `kampfire-user` ClusterRole once to your cluster. This defines the exact set of privileges required to run, list, exec, copy, and port-forward sandboxes:
 
 ```yaml
-# campfire-user-clusterrole.yaml
+# kampfire-user-clusterrole.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: campfire-user
+  name: kampfire-user
 rules:
   # 1. Agent Sandbox CRDs
   - apiGroups: ["agents.x-k8s.io"]
@@ -34,7 +34,7 @@ rules:
 
 Apply with:
 ```bash
-kubectl apply -f campfire-user-clusterrole.yaml
+kubectl apply -f kampfire-user-clusterrole.yaml
 ```
 
 ---
@@ -55,11 +55,11 @@ kubectl create serviceaccount alice -n team-alice
 
 ## 3. Bind ServiceAccount via Namespace-Scoped RoleBinding
 
-Bind the `alice` ServiceAccount to the `campfire-user` ClusterRole **inside her namespace only**:
+Bind the `alice` ServiceAccount to the `kampfire-user` ClusterRole **inside her namespace only**:
 
 ```bash
-kubectl create rolebinding alice-campfire \
-  --clusterrole=campfire-user \
+kubectl create rolebinding alice-kampfire \
+  --clusterrole=kampfire-user \
   --serviceaccount=team-alice:alice \
   -n team-alice
 ```
@@ -74,7 +74,7 @@ kubectl create rolebinding alice-campfire \
 
 Because permissions are bound via a namespace `RoleBinding`:
 * **Alice in `team-alice`** can create, list, exec, port-forward, and remove sandboxes in `team-alice`.
-* If Alice attempts to access another tenant's namespace (e.g. `campfire -n team-bob ps` or `campfire -n team-bob port-forward ...`), the Kubernetes API server unconditionally denies the request with:
+* If Alice attempts to access another tenant's namespace (e.g. `kampfire -n team-bob ps` or `kampfire -n team-bob port-forward ...`), the Kubernetes API server unconditionally denies the request with:
   ```
   403 Forbidden: User "system:serviceaccount:team-alice:alice" cannot list resource "sandboxes" in the namespace "team-bob"
   ```

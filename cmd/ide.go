@@ -3,8 +3,8 @@ package cmd
 import (
 	"context"
 
-	"campfire/pkg/ide"
-	"campfire/pkg/sandbox"
+	"github.com/basarsubasi/kampfire/pkg/ide"
+	"github.com/basarsubasi/kampfire/pkg/sandbox"
 
 	"github.com/spf13/cobra"
 )
@@ -25,10 +25,10 @@ var vscodeCmd = &cobra.Command{
 If missing, automatically installs standalone code-server, launches the daemon,
 tunnels the port securely via Kubernetes SPDY port-forwarding, and opens desktop VS Code.`,
 	Example: `  # Open sandbox in desktop VS Code
-  campfire ide vscode my-sandbox
+  kampfire ide vscode my-sandbox
 
   # Open sandbox in web browser instead
-  campfire ide vscode my-sandbox --browser`,
+  kampfire ide vscode my-sandbox --browser`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()

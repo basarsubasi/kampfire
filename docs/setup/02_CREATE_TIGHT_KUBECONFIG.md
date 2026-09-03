@@ -23,7 +23,7 @@ set -euo pipefail
 
 TENANT_NS="${1:-team-alice}"
 TENANT_USER="${2:-alice}"
-OUTPUT_FILE="campfire-${TENANT_USER}.yaml"
+OUTPUT_FILE="kampfire-${TENANT_USER}.yaml"
 
 # 1. Extract cluster API server endpoint and CA cert from your admin kubeconfig
 CLUSTER_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
@@ -37,10 +37,10 @@ clusters:
 - cluster:
     certificate-authority-data: ${CLUSTER_CA}
     server: ${CLUSTER_SERVER}
-  name: campfire-cluster
+  name: kampfire-cluster
 contexts:
 - context:
-    cluster: campfire-cluster
+    cluster: kampfire-cluster
     namespace: ${TENANT_NS}
     user: ${TENANT_USER}
   name: default
@@ -58,14 +58,14 @@ echo "✓ Created tight kubeconfig: ${OUTPUT_FILE}"
 ## 📦 Two Distribution Options
 
 ### Option A: Read-Only Base Kubeconfig + Shell Token (Recommended for CI/CD)
-1. Distribute `campfire-alice.yaml` with an empty `user: {}` section.
+1. Distribute `kampfire-alice.yaml` with an empty `user: {}` section.
 2. User sets their token as an environment variable in their shell:
    ```bash
-   export KUBECONFIG=~/campfire-alice.yaml
-   export CAMPFIRE_API_TOKEN="<minted-token>"
-   campfire ps
+   export KUBECONFIG=~/kampfire-alice.yaml
+   export KAMPFIRE_API_TOKEN="<minted-token>"
+   kampfire ps
    ```
-   Campfire automatically injects `CAMPFIRE_API_TOKEN` as a Bearer token on top of the cluster endpoint.
+   Kampfire automatically injects `KAMPFIRE_API_TOKEN` as a Bearer token on top of the cluster endpoint.
 
 ---
 
@@ -73,17 +73,17 @@ echo "✓ Created tight kubeconfig: ${OUTPUT_FILE}"
 If you prefer single-file distribution, bake their minted token directly into their personal kubeconfig:
 
 ```yaml
-# campfire-alice.yaml
+# kampfire-alice.yaml
 apiVersion: v1
 kind: Config
 clusters:
 - cluster:
     certificate-authority-data: <BASE64_CA>
     server: https://k8s.example.com:6443
-  name: campfire-cluster
+  name: kampfire-cluster
 contexts:
 - context:
-    cluster: campfire-cluster
+    cluster: kampfire-cluster
     namespace: team-alice
     user: alice
   name: default
@@ -96,8 +96,8 @@ users:
 
 The user only needs one command:
 ```bash
-export KUBECONFIG=~/campfire-alice.yaml
-campfire ps
+export KUBECONFIG=~/kampfire-alice.yaml
+kampfire ps
 ```
 
 Next, proceed to [Step 3: RBAC and Namespaces](03_RBAC_AND_NAMESPACES.md).

@@ -1,7 +1,7 @@
 .PHONY: build test test-e2e e2e clean
 
 build:
-	go build -o bin/campfire .
+	go build -o bin/kampfire .
 
 test:
 	go test -v ./pkg/... ./cmd/...

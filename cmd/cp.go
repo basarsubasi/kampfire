@@ -3,8 +3,8 @@ package cmd
 import (
 	"context"
 
-	"campfire/pkg/transfer"
-	"campfire/pkg/ui"
+	"github.com/basarsubasi/kampfire/pkg/transfer"
+	"github.com/basarsubasi/kampfire/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -15,13 +15,13 @@ var cpCmd = &cobra.Command{
 	Long: `Transfers files or directories between the local filesystem and a sandbox container.
 Follows Docker cp syntax: specify remote paths as SANDBOX_ID:PATH.`,
 	Example: `  # Copy local file into sandbox
-  campfire cp ./main.py my-sandbox:/workspace/main.py
+  kampfire cp ./main.py my-sandbox:/workspace/main.py
 
   # Copy file from sandbox to local directory
-  campfire cp my-sandbox:/tmp/result.json ./result.json
+  kampfire cp my-sandbox:/tmp/result.json ./result.json
 
   # Copy directory recursively into sandbox
-  campfire cp ./src my-sandbox:/app/src`,
+  kampfire cp ./src my-sandbox:/app/src`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()

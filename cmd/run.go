@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"campfire/pkg/sandbox"
-	"campfire/pkg/terminal"
-	"campfire/pkg/transfer"
-	"campfire/pkg/ui"
+	"github.com/basarsubasi/kampfire/pkg/sandbox"
+	"github.com/basarsubasi/kampfire/pkg/terminal"
+	"github.com/basarsubasi/kampfire/pkg/transfer"
+	"github.com/basarsubasi/kampfire/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -31,13 +31,13 @@ var runCmd = &cobra.Command{
 	Long: `Provisions an isolated Sandbox container in your configured namespace.
 When run with -it, automatically drops into an interactive shell as soon as the container boots.`,
 	Example: `  # Launch an interactive Alpine sandbox with full PTY terminal
-  campfire run --image alpine -it
+  kampfire run --image alpine -it
 
   # Launch a named sandbox in detached mode
-  campfire run my-box --image python:3.12 -d
+  kampfire run my-box --image python:3.12 -d
 
   # Launch an ephemeral sandbox that is deleted on exit
-  campfire run --image alpine --rm -it`,
+  kampfire run --image alpine --rm -it`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		client, _, err := GetClient()
@@ -77,7 +77,7 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 		info, err := sandbox.Create(ctx, client, name, runImage, command)
 		if err != nil {
 			if strings.Contains(err.Error(), "exceeded quota") {
-				return fmt.Errorf("sandbox limit reached in namespace %s (ResourceQuota exceeded)\n  Use 'campfire ps' and 'campfire rm' to free up capacity", client.Namespace)
+				return fmt.Errorf("sandbox limit reached in namespace %s (ResourceQuota exceeded)\n  Use 'kampfire ps' and 'kampfire rm' to free up capacity", client.Namespace)
 			}
 			return fmt.Errorf("failed to create sandbox: %w", err)
 		}

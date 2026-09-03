@@ -1,7 +1,7 @@
 package main
 
 import (
-	"campfire/cmd"
+	"github.com/basarsubasi/kampfire/cmd"
 )
 
 func main() {
