@@ -1,8 +1,6 @@
 # kampfire
 A developer-first, Docker-style CLI for Kubernetes Agent Sandboxes.
 
----
-
 ## Quick Start
 
 ### 1. Install the CLI
@@ -49,10 +47,14 @@ Create and start a new containerized sandbox with standard Docker flags:
 kampfire run --image alpine -it /bin/sh
 
 # Run in background (detached mode)
-kampfire run --name my-sandbox --image python:3.12 -d
+kampfire run --name my-sandbox --image debian:bookworm -d
 
-# Override container command
-kampfire run --name web-server --image nginx:alpine -d
+# Inject host SSH keys to access private repositories
+kampfire run --image alpine/git --with-private-ssh-keys -it
+
+# Clone a git repository into sandbox home upon creation
+kampfire run --image alpine/git --clone-repo "https://github.com/org/repo.git" -it
+
 ```
 
 ### 2. Execute Commands & Interactive Shells (`exec`)
@@ -109,7 +111,7 @@ kampfire port-forward 0cceb66ac7b7 8080:80 5432:5432
 ```
 *Aliases: `kampfire port-forward`, `kampfire forward`, `kampfire pf`.*
 
-### 6. One-Click Desktop VS Code (`ide vscode`)
+### 6.IDE Integration (`ide`)
 Connect your desktop VS Code directly to a remote sandbox:
 
 ```bash
