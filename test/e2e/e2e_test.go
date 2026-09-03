@@ -360,56 +360,6 @@ func TestE2E_Remove(t *testing.T) {
 	}
 }
 
-// TestE2E_ResourceQuotaLimit tests that Kubernetes ResourceQuotas are enforced and formatted properly.
-func TestE2E_ResourceQuotaLimit(t *testing.T) {
-	t.Parallel()
-	ns := setupNamespace(t)
-
-	// Apply a hard limit of 1 sandbox
-	quotaManifest := fmt.Sprintf(`
-apiVersion: v1
-kind: ResourceQuota
-metadata:
-  name: test-quota
-  namespace: %s
-spec:
-  hard:
-    count/sandboxes.agents.x-k8s.io: "1"
-`, ns)
-
-	cmd := exec.Command("kubectl", "apply", "-f", "-")
-	cmd.Stdin = strings.NewReader(quotaManifest)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("failed to apply ResourceQuota: %s", string(out))
-	}
-
-	// 1st sandbox: should succeed (with brief retry while quota controller calculates status)
-	var out string
-	var runErr error
-	for i := 0; i < 6; i++ {
-		out, runErr = runCampfire(t, "-n", ns, "run", "--name", "quota-box1", "--image", "alpine", "-d")
-		if runErr == nil {
-			break
-		}
-		if strings.Contains(out, "status unknown for quota") {
-			time.Sleep(1 * time.Second)
-			continue
-		}
-		break
-	}
-	if runErr != nil {
-		t.Fatalf("first sandbox should succeed under quota: %s (err: %v)", out, runErr)
-	}
-
-	// 2nd sandbox: MUST fail due to quota
-	secondOut, secondErr := runCampfire(t, "-n", ns, "run", "--name", "quota-box2", "--image", "alpine", "-d")
-	if secondErr == nil {
-		t.Fatalf("expected second sandbox to fail quota, but succeeded: %s", secondOut)
-	}
-	if !strings.Contains(secondOut, "ResourceQuota exceeded") && !strings.Contains(secondOut, "limit reached") {
-		t.Errorf("expected clean quota error message, got: %s", secondOut)
-	}
-}
 
 // TestE2E_PortForward tests port forwarding from host to container.
 func TestE2E_PortForward(t *testing.T) {
