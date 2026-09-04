@@ -44,7 +44,6 @@ if [ -f /etc/alpine-release ]; then
     # Official recommendation: install via npm and build native modules with C dependencies.
     echo "Alpine Linux detected. Installing build dependencies and code-server via npm..." >&2
     apk add --no-cache nodejs npm alpine-sdk bash libstdc++ libc6-compat python3 krb5-dev
-    npm config set python python3
     npm install --global code-server --unsafe-perm
 else
     # Debian/Ubuntu/Fedora/CentOS use official standalone pre-built glibc installer
