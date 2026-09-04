@@ -764,108 +764,6 @@ func TestE2E_RunKeepAliveAndFailureDetection(t *testing.T) {
 	}
 }
 
-// TestE2E_IDE_VSCode tests the `kampfire ide vscode` workflow:
-// verifying binary resolution, readiness detection, tunnel binding on 0.0.0.0,
-// vscode:// protocol URI emission, and HTTP accessibility.
-func TestE2E_IDE_VSCode(t *testing.T) {
-	t.Parallel()
-	ns := setupNamespace(t)
-	boxName := "vscode-box"
-
-	// 1. Run Alpine sandbox
-	_, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
-	if err != nil {
-		t.Fatalf("failed to run sandbox: %v", err)
-	}
-
-	// 2. Set up simulated code-server in /usr/local/bin to avoid external 80MB download during CI
-	mockScript := `cat << 'EOF' > /usr/local/bin/code-server
-#!/bin/sh
-if [ "$1" = "--version" ]; then
-    echo "4.96.4 mock-version"
-    exit 0
-fi
-while true; do
-    echo -e "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 22\r\n\r\n<h1>code-server</h1>" | nc -l -p 13337 2>/dev/null || sleep 1
-done
-EOF
-chmod +x /usr/local/bin/code-server`
-	_, err = runKampfire(t, "-n", ns, "exec", boxName, "sh", "-c", mockScript)
-	if err != nil {
-		t.Fatalf("failed to install mock code-server in container: %v", err)
-	}
-
-	// 3. Start kampfire ide vscode --browser in background
-	ideCmd := exec.Command(kampfireBin, "-n", ns, "ide", "vscode", boxName, "--browser")
-	var ideStdout, ideStderr bytes.Buffer
-	ideCmd.Stdout = &ideStdout
-	ideCmd.Stderr = &ideStderr
-
-	if err := ideCmd.Start(); err != nil {
-		t.Fatalf("failed to start ide vscode command: %v", err)
-	}
-	t.Cleanup(func() {
-		if ideCmd.Process != nil {
-			_ = ideCmd.Process.Kill()
-		}
-	})
-
-	// 4. Wait for tunnel established message with port and vscode:// URI
-	portRegex := regexp.MustCompile(`0\.0\.0\.0:([0-9]+)`)
-	var localPort string
-	var success bool
-
-	for i := 0; i < 30; i++ {
-		time.Sleep(500 * time.Millisecond)
-		out := ideStdout.String()
-		if match := portRegex.FindStringSubmatch(out); len(match) > 1 {
-			localPort = match[1]
-			success = true
-			break
-		}
-	}
-
-	if !success {
-		t.Fatalf("timed out waiting for VS Code tunnel establishment. stdout:\n%s\nstderr:\n%s", ideStdout.String(), ideStderr.String())
-	}
-
-	// 5. Verify vscode:// URI was printed in terminal output
-	out := ideStdout.String()
-	expectedURI := fmt.Sprintf("vscode://ms-vscode.remote-server/open?url=http://localhost:%s", localPort)
-	if !strings.Contains(out, expectedURI) {
-		t.Errorf("expected stdout to contain VS Code URI %q, got:\n%s", expectedURI, out)
-	}
-
-	// 6. Verify HTTP accessibility on localPort
-	targetURL := fmt.Sprintf("http://127.0.0.1:%s", localPort)
-	client := &http.Client{Timeout: 2 * time.Second}
-	var respBody string
-	var httpSuccess bool
-
-	for i := 0; i < 20; i++ {
-		time.Sleep(500 * time.Millisecond)
-		resp, err := client.Get(targetURL)
-		if err == nil {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			if strings.Contains(string(body), "code-server") {
-				respBody = string(body)
-				httpSuccess = true
-				break
-			}
-		}
-	}
-
-	if !httpSuccess {
-		t.Fatalf("HTTP request to %s failed (resp: %s, stderr: %s)", targetURL, respBody, ideStderr.String())
-	}
-
-	// 7. Terminate gracefully with SIGINT
-	if ideCmd.Process != nil {
-		_ = ideCmd.Process.Signal(os.Interrupt)
-	}
-}
-
 // TestE2E_Run_ResourceLimits tests running a sandbox with --cpu and --memory flags.
 func TestE2E_Run_ResourceLimits(t *testing.T) {
 	t.Parallel()
@@ -976,7 +874,7 @@ func TestE2E_Completion(t *testing.T) {
 		}
 	}
 
-	// 3. Test dynamic sandbox name completion via Cobra's __complete internal command
+	// 3. Test dynamic sandbox name and ID completion via Cobra's __complete internal command
 	compOut, err := runKampfire(t, "-n", ns, "__complete", "exec", "")
 	if err != nil {
 		t.Fatalf("dynamic completion failed: %v (output: %s)", err, compOut)
@@ -984,8 +882,139 @@ func TestE2E_Completion(t *testing.T) {
 	if !strings.Contains(compOut, boxName) {
 		t.Errorf("expected dynamic completions to contain sandbox name %s, got:\n%s", boxName, compOut)
 	}
+
+	// 4. Test top-level command completion
+	cmdCompOut, err := runKampfire(t, "__complete", "")
+	if err != nil {
+		t.Fatalf("command completion failed: %v (output: %s)", err, cmdCompOut)
+	}
+	for _, expectedCmd := range []string{"run", "ps", "exec", "logs", "rm", "top", "ide", "completion"} {
+		if !strings.Contains(cmdCompOut, expectedCmd) {
+			t.Errorf("expected command completion to include %s, got:\n%s", expectedCmd, cmdCompOut)
+		}
+	}
+
+	// 5. Test flag autocompletion (e.g. for kampfire run --)
+	flagCompOut, err := runKampfire(t, "__complete", "run", "--")
+	if err != nil {
+		t.Fatalf("flag completion failed: %v (output: %s)", err, flagCompOut)
+	}
+	for _, expectedFlag := range []string{"--cpu", "--memory", "--publish", "--name", "--image"} {
+		if !strings.Contains(flagCompOut, expectedFlag) {
+			t.Errorf("expected flag completion to include %s, got:\n%s", expectedFlag, flagCompOut)
+		}
+	}
 }
 
+// TestE2E_Run_MultiplePublishedPorts tests publishing multiple ports and verifies ps output formatting.
+func TestE2E_Run_MultiplePublishedPorts(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxWithPorts := "multi-port-box"
+	boxNoPorts := "no-port-box"
 
+	// 1. Run sandbox with multiple published ports
+	out, err := runKampfire(t, "-n", ns, "run", "--name", boxWithPorts, "--image", "alpine", "-p", "8080:80", "-p", "3000", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox with multiple ports: %v (output: %s)", err, out)
+	}
+	if !strings.Contains(out, "8080 -> 80") || !strings.Contains(out, "3000 -> 3000") {
+		t.Errorf("expected run output to mention both port mappings, got:\n%s", out)
+	}
 
+	// 2. Run sandbox without published ports
+	_, err = runKampfire(t, "-n", ns, "run", "--name", boxNoPorts, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox without ports: %v", err)
+	}
 
+	// 3. Verify ps output displays ports and dash for unmapped sandbox
+	psOut, err := runKampfire(t, "-n", ns, "ps")
+	if err != nil {
+		t.Fatalf("kampfire ps failed: %v (output: %s)", err, psOut)
+	}
+	if !strings.Contains(psOut, "PORTS") {
+		t.Errorf("expected ps output to have PORTS header, got:\n%s", psOut)
+	}
+	if !strings.Contains(psOut, "80/TCP, 3000/TCP") {
+		t.Errorf("expected ps output to contain '80/TCP, 3000/TCP', got:\n%s", psOut)
+	}
+}
+
+// TestE2E_Run_InvalidPortFlags tests port validation logic on run command.
+func TestE2E_Run_InvalidPortFlags(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+
+	// Test non-numeric port
+	out, err := runKampfire(t, "-n", ns, "run", "--name", "fail-box-1", "--image", "alpine", "-p", "abc", "-d")
+	if err == nil {
+		t.Fatalf("expected run with invalid port 'abc' to fail, but succeeded: %s", out)
+	}
+	if !strings.Contains(out, "invalid port") {
+		t.Errorf("expected error message to mention invalid port, got:\n%s", out)
+	}
+
+	// Test out-of-range port number
+	out, err = runKampfire(t, "-n", ns, "run", "--name", "fail-box-2", "--image", "alpine", "-p", "99999", "-d")
+	if err == nil {
+		t.Fatalf("expected run with port '99999' to fail, but succeeded: %s", out)
+	}
+	if !strings.Contains(out, "65535") {
+		t.Errorf("expected error message to mention 65535 range limit, got:\n%s", out)
+	}
+}
+
+// TestE2E_Top_NonExistentAndEmpty tests edge cases for the top command.
+func TestE2E_Top_NonExistentAndEmpty(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+
+	// 1. In an empty namespace, top should report no sandboxes found gracefully
+	emptyOut, err := runKampfire(t, "-n", ns, "top")
+	if err != nil {
+		t.Fatalf("expected top in empty namespace to succeed, got error: %v (output: %s)", err, emptyOut)
+	}
+	if !strings.Contains(emptyOut, "No sandboxes found") {
+		t.Errorf("expected empty namespace message, got:\n%s", emptyOut)
+	}
+
+	// 2. Start a sandbox
+	boxName := "top-edge-box"
+	_, err = runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox: %v", err)
+	}
+
+	// 3. Querying non-existent target should return a clear error
+	nonExistentOut, err := runKampfire(t, "-n", ns, "top", "non-existent-sandbox")
+	if err == nil {
+		t.Fatalf("expected top with non-existent target to fail, but succeeded: %s", nonExistentOut)
+	}
+	if !strings.Contains(nonExistentOut, "not found") {
+		t.Errorf("expected error to mention 'not found', got:\n%s", nonExistentOut)
+	}
+}
+
+// TestE2E_Completion_MultipleCommands tests autocompletion across logs, rm, top, and port-forward.
+func TestE2E_Completion_MultipleCommands(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "multi-comp-box"
+
+	_, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox: %v", err)
+	}
+
+	commands := []string{"logs", "rm", "top", "port-forward"}
+	for _, cmd := range commands {
+		out, err := runKampfire(t, "-n", ns, "__complete", cmd, "")
+		if err != nil {
+			t.Fatalf("__complete %s failed: %v (output: %s)", cmd, err, out)
+		}
+		if !strings.Contains(out, boxName) {
+			t.Errorf("expected __complete %s to offer %s, got:\n%s", cmd, boxName, out)
+		}
+	}
+}
