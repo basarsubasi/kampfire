@@ -72,10 +72,10 @@ fi
 	startScript = `
 export PATH="/usr/local/bin:/usr/bin:$HOME/.local/bin:/root/.local/bin:$PATH"
 
-# Function to check if port 13337 is actively listening (prefers ss and /proc/net/tcp over nc)
+# Function to check if port 13337 is actively listening (prefers /proc/net/tcp for zero-dependency speed)
 is_port_listening() {
-    ss -tlpn 2>/dev/null | grep -q ":13337" || \
     grep -q ":3419 " /proc/net/tcp /proc/net/tcp6 2>/dev/null || \
+    ss -tlpn 2>/dev/null | grep -q ":13337" || \
     netstat -tlpn 2>/dev/null | grep -q ":13337" || \
     nc -z 127.0.0.1 13337 2>/dev/null
 }
@@ -89,6 +89,7 @@ fi
 CODE_BIN=""
 for p in "code-server" \
          "/usr/local/bin/code-server" \
+         "/usr/local/lib/code-server/bin/code-server" \
          "/usr/bin/code-server" \
          "$HOME/.local/bin/code-server" \
          "/root/.local/bin/code-server"; do
@@ -99,7 +100,7 @@ for p in "code-server" \
 done
 
 if [ -z "$CODE_BIN" ]; then
-    CODE_BIN=$(find / -name "code-server" -type f -perm -111 2>/dev/null | grep bin/code-server | head -n 1)
+    CODE_BIN=$(find /usr /opt /root /home -maxdepth 4 -name "code-server" -type f -perm -111 2>/dev/null | head -n 1)
 fi
 
 if [ -z "$CODE_BIN" ]; then
@@ -114,23 +115,34 @@ if ! "$CODE_BIN" --version >/tmp/code-server-check.log 2>&1; then
     exit 1
 fi
 
-# Launch daemon in background (do not use pgrep -f which matches this script's own command line)
-"$CODE_BIN" --auth none --bind-addr 0.0.0.0:13337 >/tmp/code-server.log 2>&1 &
-echo $! > /tmp/code-server.pid
+# Launch daemon in background with nohup, telemetry disabled, opening container home workspace
+TARGET_DIR="${HOME:-/root}"
+nohup "$CODE_BIN" --auth none \
+    --disable-telemetry \
+    --disable-update-check \
+    --bind-addr 0.0.0.0:13337 \
+    "$TARGET_DIR" >/tmp/code-server.log 2>&1 &
+PID=$!
+echo "$PID" > /tmp/code-server.pid
 
-# Wait up to 15 seconds for code-server to bind to port 13337
+# Wait up to 15 seconds for code-server to bind to port 13337, fast-failing if process dies
 READY=0
 for i in $(seq 1 30); do
     if is_port_listening; then
         READY=1
         break
     fi
+    if ! kill -0 "$PID" 2>/dev/null; then
+        echo "code-server process died unexpectedly. Output log:" >&2
+        tail -n 30 /tmp/code-server.log >&2 2>/dev/null || echo "No log found" >&2
+        exit 1
+    fi
     sleep 0.5
 done
 
 if [ "$READY" -ne 1 ]; then
-    echo "code-server failed to bind to port 13337. Output log:" >&2
-    cat /tmp/code-server.log >&2 2>/dev/null || echo "No /tmp/code-server.log found" >&2
+    echo "code-server failed to bind to port 13337 within 15 seconds. Output log:" >&2
+    tail -n 30 /tmp/code-server.log >&2 2>/dev/null || echo "No log found" >&2
     exit 1
 fi
 `
