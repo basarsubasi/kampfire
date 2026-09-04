@@ -44,6 +44,7 @@ echo "==> Spinning up fresh KinD cluster: $CLUSTER_NAME..."
 "$KIND_BIN" delete cluster --name "$CLUSTER_NAME" 2>/dev/null || true
 "$KIND_BIN" create cluster --name "$CLUSTER_NAME" --kubeconfig "$KUBECONFIG_FILE"
 
+export KUBECONFIG="$KUBECONFIG_FILE"
 export KAMPFIRE_KUBECONFIG="$KUBECONFIG_FILE"
 
 echo "==> Deploying Kubernetes Agent Sandbox ($VERSION)..."
