@@ -33,6 +33,7 @@ var (
 	runPublish            []string
 	runPersist            string
 	runPersistSize        string
+	runWithPullSecret     string
 )
 
 var runCmd = &cobra.Command{
@@ -119,6 +120,7 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 			PublishedPorts: formattedPorts,
 			PersistPath:    runPersist,
 			PersistSize:    runPersistSize,
+			PullSecret:     runWithPullSecret,
 		}
 		info, err := sandbox.CreateWithOptions(ctx, client, opts)
 		if err != nil {
@@ -301,6 +303,7 @@ func init() {
 	runCmd.Flags().StringArrayVarP(&runPublish, "publish", "p", nil, "Publish container port(s) to host (e.g. 8080:80, 3000)")
 	runCmd.Flags().StringVar(&runPersist, "persist", "", "Mount persistent workspace volume at path (e.g. --persist /workspace)")
 	runCmd.Flags().StringVar(&runPersistSize, "persist-size", "5Gi", "Size of persistent storage volume (e.g. 5Gi, 10Gi)")
+	runCmd.Flags().StringVar(&runWithPullSecret, "with-pull-secret", "", "Kubernetes secret name for pulling private container images")
 
 	RootCmd.AddCommand(runCmd)
 }

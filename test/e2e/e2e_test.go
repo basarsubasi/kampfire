@@ -1158,3 +1158,34 @@ func TestE2E_StopAndStart_Persistence(t *testing.T) {
 		t.Fatalf("persisted file did not survive restart! err: %v, output: %q", err, catOutAfterRestart)
 	}
 }
+
+// TestE2E_WithPullSecret verifies that --with-pull-secret correctly sets imagePullSecrets on the sandbox pod template.
+func TestE2E_WithPullSecret(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "pull-sec-box"
+	secretName := "test-pull-secret"
+
+	// 1. Create a dummy secret in the test namespace
+	createSecret := exec.Command("kubectl", "create", "secret", "generic", secretName, "-n", ns)
+	if out, err := createSecret.CombinedOutput(); err != nil {
+		t.Fatalf("failed to create dummy secret: %v (out: %s)", err, string(out))
+	}
+
+	// 2. Launch sandbox with --with-pull-secret
+	out, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "--with-pull-secret", secretName, "-d")
+	if err != nil {
+		t.Fatalf("failed to create sandbox with --with-pull-secret: %v (output: %s)", err, out)
+	}
+
+	// 3. Verify imagePullSecrets was injected into Sandbox spec.podTemplate.spec
+	checkSec := exec.Command("kubectl", "get", "sandbox", boxName, "-n", ns, "-o", "jsonpath={.spec.podTemplate.spec.imagePullSecrets[0].name}")
+	secOut, err := checkSec.CombinedOutput()
+	if err != nil {
+		t.Fatalf("failed to query sandbox imagePullSecrets: %v (out: %s)", err, string(secOut))
+	}
+	if strings.TrimSpace(string(secOut)) != secretName {
+		t.Errorf("expected imagePullSecret %s, got %q", secretName, string(secOut))
+	}
+}
+

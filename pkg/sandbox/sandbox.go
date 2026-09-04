@@ -66,6 +66,7 @@ type CreateOptions struct {
 	PublishedPorts []string
 	PersistPath    string
 	PersistSize    string
+	PullSecret     string
 }
 
 // CreateWithOptions provisions a new Sandbox custom resource with granular options (CPU, Memory, Ports).
@@ -148,15 +149,32 @@ func CreateWithOptions(ctx context.Context, client *k8s.Client, opts CreateOptio
 		"agents.x-k8s.io/created-by": "kampfire",
 	}
 
+	podSpec := map[string]interface{}{
+		"containers": []interface{}{
+			containerObj,
+		},
+	}
+
+	if opts.PullSecret != "" {
+		var secrets []interface{}
+		for _, s := range strings.Split(opts.PullSecret, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				secrets = append(secrets, map[string]interface{}{
+					"name": s,
+				})
+			}
+		}
+		if len(secrets) > 0 {
+			podSpec["imagePullSecrets"] = secrets
+		}
+	}
+
 	specMap := map[string]interface{}{
 		"operatingMode":  "Running",
 		"shutdownPolicy": "Retain",
 		"podTemplate": map[string]interface{}{
-			"spec": map[string]interface{}{
-				"containers": []interface{}{
-					containerObj,
-				},
-			},
+			"spec": podSpec,
 		},
 	}
 

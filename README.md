@@ -81,6 +81,9 @@ kampfire run --image python:3.12 --persist /workspace -it
 
 # Attach persistent storage with custom size (e.g. 10Gi)
 kampfire run --image python:3.12 --persist /data --persist-size 10Gi -d
+
+# Pull image from private registry using a Kubernetes imagePullSecret
+kampfire run --image ghcr.io/org/private-agent:v1 --with-pull-secret ghcr-creds -it
 ```
 
 ### 2. Execute Commands & Interactive Shells (`exec`)

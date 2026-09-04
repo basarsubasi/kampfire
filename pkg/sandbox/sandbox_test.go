@@ -434,3 +434,51 @@ func TestStopAndStart(t *testing.T) {
 	}
 }
 
+func TestCreateWithOptions_PullSecret(t *testing.T) {
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClient(scheme)
+	fakeK8s := k8sfake.NewSimpleClientset()
+
+	client := &k8s.Client{
+		Dynamic:   dynClient,
+		Clientset: fakeK8s,
+		Namespace: "default",
+	}
+
+	opts := CreateOptions{
+		Name:       "pullsecret-box",
+		Image:      "ghcr.io/private/agent:latest",
+		PullSecret: "ghcr-creds,internal-creds",
+	}
+
+	info, err := CreateWithOptions(context.Background(), client, opts)
+	if err != nil {
+		t.Fatalf("CreateWithOptions() failed: %v", err)
+	}
+	if info.Name != "pullsecret-box" {
+		t.Errorf("expected name pullsecret-box, got %s", info.Name)
+	}
+
+	obj, err := dynClient.Resource(SandboxGVR).Namespace("default").Get(context.Background(), "pullsecret-box", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to retrieve created Sandbox: %v", err)
+	}
+
+	// Verify imagePullSecrets in podTemplate.spec
+	pullSecrets, found, err := unstructured.NestedSlice(obj.Object, "spec", "podTemplate", "spec", "imagePullSecrets")
+	if !found || err != nil || len(pullSecrets) != 2 {
+		t.Fatalf("expected 2 imagePullSecrets, found=%v, len=%d, err=%v", found, len(pullSecrets), err)
+	}
+
+	s0 := pullSecrets[0].(map[string]interface{})
+	if s0["name"] != "ghcr-creds" {
+		t.Errorf("expected secret 0 name ghcr-creds, got %v", s0["name"])
+	}
+
+	s1 := pullSecrets[1].(map[string]interface{})
+	if s1["name"] != "internal-creds" {
+		t.Errorf("expected secret 1 name internal-creds, got %v", s1["name"])
+	}
+}
+
+
