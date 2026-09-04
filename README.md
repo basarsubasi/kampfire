@@ -150,8 +150,10 @@ Remove one or more sandboxes by name or ID:
 # Remove specific sandboxes
 kampfire rm my-sandbox 0cceb66ac7b7
 
-# Batch remove all sandboxes in current namespace
-kampfire rm $(kampfire ps -q)
+# Remove all sandboxes in current namespace
+kampfire rm -a
+# or
+kampfire rm --all
 ```
 
 ---

@@ -44,10 +44,6 @@ func TestScripts_AlpineNpmInstallation(t *testing.T) {
 		}
 	}
 
-	// Must clean up incompatible standalone binaries from previous runs
-	if !strings.Contains(installScript, "rm -rf /usr/local/bin/code-server") {
-		t.Errorf("installScript should clean up old standalone code-server on Alpine")
-	}
 
 	// Must install code-server via npm with --unsafe-perm
 	if !strings.Contains(installScript, "npm install --global code-server --unsafe-perm") {

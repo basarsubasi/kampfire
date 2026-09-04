@@ -10,8 +10,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	rmAll bool
+)
+
 var rmCmd = &cobra.Command{
-	Use:   "rm SANDBOX_ID [SANDBOX_ID...]",
+	Use:   "rm [flags] SANDBOX_ID [SANDBOX_ID...]",
 	Short: "Remove one or more sandboxes",
 	Long:  `Deletes the specified Sandbox resources from your configured namespace.`,
 	Example: `  # Remove a single sandbox
@@ -20,9 +24,14 @@ var rmCmd = &cobra.Command{
   # Remove multiple sandboxes
   kampfire rm sb-1 sb-2 sb-3
 
-  # Remove all sandboxes in namespace
-  kampfire rm $(kampfire ps -q)`,
-	Args: cobra.MinimumNArgs(1),
+  # Remove all sandboxes in current namespace
+  kampfire rm -a`,
+	Args: func(cmd *cobra.Command, args []string) error {
+		if !rmAll && len(args) == 0 {
+			return fmt.Errorf("requires at least 1 arg(s), or use -a/--all to remove all sandboxes")
+		}
+		return nil
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		client, _, err := GetClient()
@@ -30,11 +39,29 @@ var rmCmd = &cobra.Command{
 			return err
 		}
 
+		var targets []string
+		if rmAll {
+			sandboxes, err := sandbox.List(ctx, client, true)
+			if err != nil {
+				return err
+			}
+			if len(sandboxes) == 0 {
+				return nil
+			}
+			for _, sb := range sandboxes {
+				targets = append(targets, sb.Name)
+			}
+		} else {
+			targets = args
+		}
+
 		var hasError bool
-		for _, target := range args {
+		for _, target := range targets {
 			name := target
-			if sb, err := sandbox.Find(ctx, client, target); err == nil {
-				name = sb.Name
+			if !rmAll {
+				if sb, err := sandbox.Find(ctx, client, target); err == nil {
+					name = sb.Name
+				}
 			}
 			if err := sandbox.Delete(ctx, client, name); err != nil {
 				ui.Error("Failed to remove sandbox %s: %s", target, err)
@@ -52,5 +79,6 @@ var rmCmd = &cobra.Command{
 }
 
 func init() {
+	rmCmd.Flags().BoolVarP(&rmAll, "all", "a", false, "Remove all sandboxes in current namespace")
 	RootCmd.AddCommand(rmCmd)
 }
