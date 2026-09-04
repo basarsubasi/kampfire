@@ -84,6 +84,10 @@ If only REMOTE_PORT is specified (e.g. 8080), LOCAL_PORT defaults to the same va
 
 		select {
 		case <-readyCh:
+			cleanup, _ := sandbox.RegisterActiveForward(client.Namespace, sandboxName, ports)
+			if cleanup != nil {
+				defer cleanup()
+			}
 			for _, p := range ports {
 				parts := strings.Split(p, ":")
 				ui.Success("Forwarding from 127.0.0.1:%s -> %s (sandbox: %s)", parts[0], parts[1], ui.TitleStyle.Render(sandboxName))

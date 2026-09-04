@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/basarsubasi/kampfire/pkg/k8s"
+	"github.com/basarsubasi/kampfire/pkg/sandbox"
 	"github.com/basarsubasi/kampfire/pkg/terminal"
 	"github.com/basarsubasi/kampfire/pkg/ui"
 )
@@ -289,6 +290,10 @@ func OpenBrowserCodeServer(ctx context.Context, client *k8s.Client, podName stri
 
 	select {
 	case <-readyCh:
+		cleanup, _ := sandbox.RegisterActiveForward(client.Namespace, podName, []string{fmt.Sprintf("%d:%d", localPort, remotePort)})
+		if cleanup != nil {
+			defer cleanup()
+		}
 		webURL := fmt.Sprintf("http://localhost:%d", localPort)
 		ui.Success("VS Code server tunnel established on 0.0.0.0:%d", localPort)
 		ui.Info("Opening in default browser (%s)...", webURL)

@@ -187,6 +187,10 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 				}()
 				select {
 				case <-readyCh:
+					cleanup, _ := sandbox.RegisterActiveForward(client.Namespace, info.Name, formattedPorts)
+					if cleanup != nil {
+						defer cleanup()
+					}
 					for _, fp := range formattedPorts {
 						parts := strings.Split(fp, ":")
 						ui.Success("Port forward active: 127.0.0.1:%s -> %s", parts[0], parts[1])
@@ -231,6 +235,10 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 
 			select {
 			case <-readyCh:
+				cleanup, _ := sandbox.RegisterActiveForward(client.Namespace, info.Name, formattedPorts)
+				if cleanup != nil {
+					defer cleanup()
+				}
 				for _, fp := range formattedPorts {
 					parts := strings.Split(fp, ":")
 					ui.Success("Forwarding from 127.0.0.1:%s -> %s (sandbox: %s)", parts[0], parts[1], ui.TitleStyle.Render(info.Name))

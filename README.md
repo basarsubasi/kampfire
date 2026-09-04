@@ -96,10 +96,10 @@ kampfire logs -f --tail 10 my-sandbox
 ```
 
 ### 4. List Sandboxes (`ps`)
-Display formatted status, IP, and exposed ports of running sandboxes in the active namespace:
+Display formatted status, IP, published container ports, and active port-forward sessions (`127.0.0.1:8080->80/TCP`) of running sandboxes in the active namespace:
 
 ```bash
-# Human-readable table
+# Human-readable table (shows live port-forwards and container ports)
 kampfire ps
 
 # Output only 12-character short IDs (useful for scripting/piping)

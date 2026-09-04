@@ -1018,3 +1018,57 @@ func TestE2E_Completion_MultipleCommands(t *testing.T) {
 		}
 	}
 }
+
+// TestE2E_Ps_DetectsActivePortForward verifies that running 'kampfire port-forward' dynamically updates 'kampfire ps' PORTS column.
+func TestE2E_Ps_DetectsActivePortForward(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "pf-ps-box"
+
+	// 1. Run sandbox without published ports
+	_, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox: %v", err)
+	}
+
+	// 2. Find a free port
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to find free port: %v", err)
+	}
+	freePort := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+
+	// 3. Start kampfire port-forward in background
+	pfCmd := exec.Command(kampfireBin, "-n", ns, "port-forward", boxName, fmt.Sprintf("%d:8080", freePort))
+	var pfStdout, pfStderr bytes.Buffer
+	pfCmd.Stdout = &pfStdout
+	pfCmd.Stderr = &pfStderr
+
+	if err := pfCmd.Start(); err != nil {
+		t.Fatalf("failed to start port-forward: %v", err)
+	}
+	defer func() {
+		if pfCmd.Process != nil {
+			_ = pfCmd.Process.Kill()
+		}
+	}()
+
+	// 4. Wait for forward to be established
+	for i := 0; i < 20; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if strings.Contains(pfStdout.String(), "Forwarding from") {
+			break
+		}
+	}
+
+	// 5. Verify kampfire ps now detects the actively forwarded port
+	psOutAfter, err := runKampfire(t, "-n", ns, "ps")
+	if err != nil {
+		t.Fatalf("ps after port-forward failed: %v (stderr: %s)", err, psOutAfter, pfStderr.String())
+	}
+	expectedPortStr := fmt.Sprintf("127.0.0.1:%d->8080/TCP", freePort)
+	if !strings.Contains(psOutAfter, expectedPortStr) {
+		t.Errorf("expected ps to detect active port forward %s, got:\n%s", expectedPortStr, psOutAfter)
+	}
+}

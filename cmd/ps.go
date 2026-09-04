@@ -55,12 +55,14 @@ var psCmd = &cobra.Command{
 		headers := []string{"SANDBOX ID", "NAME", "IMAGE", "STATUS", "AGE", "IP", "PORTS"}
 		var rows [][]string
 
+		activeForwards := sandbox.GetActiveForwards(client.Namespace)
+
 		for _, sb := range sandboxes {
 			ip := sb.PodIP
 			if ip == "" {
 				ip = "-"
 			}
-			ports := sb.Ports
+			ports := sandbox.FormatPortsWithActiveForwards(sb.Ports, activeForwards[sb.Name], activeForwards[sb.ID])
 			if ports == "" {
 				ports = "-"
 			}
