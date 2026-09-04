@@ -18,14 +18,14 @@ func TestLoadDoesNotMutateStoredKubeconfigWithEnv(t *testing.T) {
 		t.Fatalf("failed to save config: %v", err)
 	}
 
-	// Export KUBECONFIG and CAMPFIRE_API_TOKEN
-	origKube := os.Getenv("KUBECONFIG")
+	// Export KAMPFIRE_KUBECONFIG and CAMPFIRE_API_TOKEN
+	origKube := os.Getenv(KubeconfigEnvVar)
 	origToken := os.Getenv("CAMPFIRE_API_TOKEN")
 	defer func() {
-		os.Setenv("KUBECONFIG", origKube)
+		os.Setenv(KubeconfigEnvVar, origKube)
 		os.Setenv("CAMPFIRE_API_TOKEN", origToken)
 	}()
-	os.Setenv("KUBECONFIG", "/temporary/env/kubeconfig")
+	os.Setenv(KubeconfigEnvVar, "/temporary/env/kubeconfig")
 	os.Setenv("CAMPFIRE_API_TOKEN", "temporary-env-token")
 
 	// Load should load stored config without mutating KubeconfigPath inside cfg struct
@@ -52,5 +52,43 @@ func TestLoadDoesNotMutateStoredKubeconfigWithEnv(t *testing.T) {
 	}
 	if reloaded.KubeconfigPath != "/initial/stored/kubeconfig" {
 		t.Fatalf("expected persisted KubeconfigPath to remain /initial/stored/kubeconfig, got %s", reloaded.KubeconfigPath)
+	}
+}
+
+func TestNewClientConfigLoadingRules_IgnoresClassicKubeconfig(t *testing.T) {
+	origClassic := os.Getenv("KUBECONFIG")
+	origKampfire := os.Getenv(KubeconfigEnvVar)
+	defer func() {
+		os.Setenv("KUBECONFIG", origClassic)
+		os.Setenv(KubeconfigEnvVar, origKampfire)
+	}()
+
+	// 1. Classic KUBECONFIG is set, but KAMPFIRE_KUBECONFIG is not
+	os.Setenv("KUBECONFIG", "/classic/cluster/kubeconfig")
+	os.Unsetenv(KubeconfigEnvVar)
+
+	rules := NewClientConfigLoadingRules(nil)
+	if rules.ExplicitPath != "" {
+		t.Errorf("expected empty ExplicitPath when KAMPFIRE_KUBECONFIG is unset, got %s", rules.ExplicitPath)
+	}
+	for _, p := range rules.Precedence {
+		if p == "/classic/cluster/kubeconfig" {
+			t.Errorf("expected classic KUBECONFIG to NOT be present in precedence chain, but found it")
+		}
+	}
+
+	// 2. KAMPFIRE_KUBECONFIG is set
+	os.Setenv(KubeconfigEnvVar, "/kampfire/dev/kubeconfig")
+	rulesWithKampfire := NewClientConfigLoadingRules(nil)
+	if rulesWithKampfire.ExplicitPath != "/kampfire/dev/kubeconfig" {
+		t.Errorf("expected ExplicitPath to be /kampfire/dev/kubeconfig, got %s", rulesWithKampfire.ExplicitPath)
+	}
+
+	// 3. Fallback to cfg.KubeconfigPath when KAMPFIRE_KUBECONFIG is unset
+	os.Unsetenv(KubeconfigEnvVar)
+	cfg := &Config{KubeconfigPath: "/stored/path/kubeconfig"}
+	rulesWithCfg := NewClientConfigLoadingRules(cfg)
+	if rulesWithCfg.ExplicitPath != "/stored/path/kubeconfig" {
+		t.Errorf("expected ExplicitPath to be /stored/path/kubeconfig, got %s", rulesWithCfg.ExplicitPath)
 	}
 }

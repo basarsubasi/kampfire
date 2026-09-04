@@ -48,16 +48,14 @@ var configCmd = &cobra.Command{
 			}
 		}
 
-		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-		kubePath := os.Getenv("KUBECONFIG")
+		loadingRules := config.NewClientConfigLoadingRules(cfg)
+		kubePath := os.Getenv(config.KubeconfigEnvVar)
 		kubeSource := ""
 		if kubePath != "" {
-			kubeSource = " " + ui.MutedStyle.Render("(from $KUBECONFIG)")
-			loadingRules.ExplicitPath = kubePath
+			kubeSource = " " + ui.MutedStyle.Render(fmt.Sprintf("(from $%s)", config.KubeconfigEnvVar))
 		} else if cfg.KubeconfigPath != "" {
 			kubePath = cfg.KubeconfigPath
 			kubeSource = " " + ui.MutedStyle.Render("(from config)")
-			loadingRules.ExplicitPath = kubePath
 		}
 		clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
 

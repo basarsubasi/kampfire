@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/basarsubasi/kampfire/pkg/sandbox"
@@ -74,15 +73,16 @@ Installation instructions:
 	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
 	Args:                  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		out := cmd.OutOrStdout()
 		switch args[0] {
 		case "bash":
-			return RootCmd.GenBashCompletion(os.Stdout)
+			return RootCmd.GenBashCompletion(out)
 		case "zsh":
-			return RootCmd.GenZshCompletion(os.Stdout)
+			return RootCmd.GenZshCompletion(out)
 		case "fish":
-			return RootCmd.GenFishCompletion(os.Stdout, true)
+			return RootCmd.GenFishCompletion(out, true)
 		case "powershell":
-			return RootCmd.GenPowerShellCompletionWithDesc(os.Stdout)
+			return RootCmd.GenPowerShellCompletionWithDesc(out)
 		default:
 			return fmt.Errorf("unsupported shell type %q: supported shells are bash, zsh, fish, powershell", args[0])
 		}

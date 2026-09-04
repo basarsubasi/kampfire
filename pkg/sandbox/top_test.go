@@ -9,13 +9,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
 
 func TestGetMetrics(t *testing.T) {
 	scheme := runtime.NewScheme()
-	dynClient := dynamicfake.NewSimpleDynamicClient(scheme)
+	gvrToListKind := map[schema.GroupVersionResource]string{
+		SandboxGVR: "SandboxList",
+		MetricsGVR: "PodMetricsList",
+	}
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind)
 	fakeK8s := k8sfake.NewSimpleClientset()
 
 	client := &k8s.Client{

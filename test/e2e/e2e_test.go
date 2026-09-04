@@ -66,6 +66,11 @@ func TestMain(m *testing.M) {
 		fmt.Printf("warning: failed to apply kampfire-user ClusterRole: %s\n", string(out))
 	}
 
+	// Ensure KAMPFIRE_KUBECONFIG is set from KUBECONFIG if KAMPFIRE_KUBECONFIG is empty
+	if os.Getenv("KAMPFIRE_KUBECONFIG") == "" && os.Getenv("KUBECONFIG") != "" {
+		os.Setenv("KAMPFIRE_KUBECONFIG", os.Getenv("KUBECONFIG"))
+	}
+
 	os.Exit(m.Run())
 }
 
@@ -500,7 +505,10 @@ func TestE2E_ConfigSetTokenAndKubeconfig(t *testing.T) {
 	}
 
 	// 6. Test kubeconfig set and precedence
-	currentKubeconfig := os.Getenv("KUBECONFIG")
+	currentKubeconfig := os.Getenv("KAMPFIRE_KUBECONFIG")
+	if currentKubeconfig == "" {
+		currentKubeconfig = os.Getenv("KUBECONFIG")
+	}
 	if currentKubeconfig == "" {
 		home, _ := os.UserHomeDir()
 		currentKubeconfig = filepath.Join(home, ".kube", "config")
@@ -512,17 +520,18 @@ func TestE2E_ConfigSetTokenAndKubeconfig(t *testing.T) {
 		t.Fatalf("failed to set kubeconfig via config: %s (err: %v)", setKubeOut, err)
 	}
 
-	// Verify campfire config shows kubeconfig (from config) when KUBECONFIG env var is unset
-	cfgKubeOut, err := runKampfireWithEnv(t, []string{"KUBECONFIG=", "KAMPFIRE_API_TOKEN="}, "config", "--config", tempCfg)
+	// Verify campfire config shows kubeconfig (from config) when KAMPFIRE_KUBECONFIG env var is unset
+	// and that classic KUBECONFIG is ignored
+	cfgKubeOut, err := runKampfireWithEnv(t, []string{"KAMPFIRE_KUBECONFIG=", "KUBECONFIG=/ignored/classic/path", "KAMPFIRE_API_TOKEN="}, "config", "--config", tempCfg)
 	if err != nil || !strings.Contains(cfgKubeOut, "(from config)") {
-		t.Fatalf("expected kubeconfig (from config), got: %s", cfgKubeOut)
+		t.Fatalf("expected kubeconfig (from config) ignoring classic KUBECONFIG, got: %s", cfgKubeOut)
 	}
 
-	// Verify KUBECONFIG env var takes precedence when exported
+	// Verify KAMPFIRE_KUBECONFIG env var takes precedence when exported
 	nonExistentKube := filepath.Join(tempDir, "non-existent-kubeconfig")
-	envOverrideOut, err := runKampfireWithEnv(t, []string{"KUBECONFIG=" + nonExistentKube, "KAMPFIRE_API_TOKEN="}, "-n", ns, "--config", tempCfg, "ps")
+	envOverrideOut, err := runKampfireWithEnv(t, []string{"KAMPFIRE_KUBECONFIG=" + nonExistentKube, "KAMPFIRE_API_TOKEN="}, "-n", ns, "--config", tempCfg, "ps")
 	if err == nil {
-		t.Fatalf("expected non-existent KUBECONFIG env var to override config and fail, but succeeded: %s", envOverrideOut)
+		t.Fatalf("expected non-existent KAMPFIRE_KUBECONFIG env var to override config and fail, but succeeded: %s", envOverrideOut)
 	}
 
 	// 7. Verify config.json does NOT hold server or namespace (retrieved dynamically from active context)

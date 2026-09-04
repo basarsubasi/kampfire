@@ -66,6 +66,25 @@ func Load(customPath string) (*Config, string, error) {
 	return cfg, path, nil
 }
 
+const KubeconfigEnvVar = "KAMPFIRE_KUBECONFIG"
+
+// NewClientConfigLoadingRules creates clientcmd loading rules that prioritize KAMPFIRE_KUBECONFIG
+// and ignore standard KUBECONFIG to prevent dev/prod cluster confusion.
+func NewClientConfigLoadingRules(cfg *Config) *clientcmd.ClientConfigLoadingRules {
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	// Clear clientcmd's default precedence chain (which embeds $KUBECONFIG)
+	loadingRules.Precedence = []string{clientcmd.RecommendedHomeFile}
+
+	kubeconfig := os.Getenv(KubeconfigEnvVar)
+	if kubeconfig == "" && cfg != nil {
+		kubeconfig = cfg.KubeconfigPath
+	}
+	if kubeconfig != "" {
+		loadingRules.ExplicitPath = kubeconfig
+	}
+	return loadingRules
+}
+
 // ResolveNamespace resolves the active namespace following kubectl precedence:
 // 1. Explicit CLI flag override (-n / --namespace)
 // 2. Dynamic active context namespace from kubeconfig (how kubectl does it)
@@ -75,14 +94,7 @@ func ResolveNamespace(cliFlag string, cfg *Config) string {
 		return cliFlag
 	}
 
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	kubeconfig := os.Getenv("KUBECONFIG")
-	if kubeconfig == "" && cfg != nil {
-		kubeconfig = cfg.KubeconfigPath
-	}
-	if kubeconfig != "" {
-		loadingRules.ExplicitPath = kubeconfig
-	}
+	loadingRules := NewClientConfigLoadingRules(cfg)
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
 	if activeNS, _, err := clientConfig.Namespace(); err == nil && activeNS != "" {
 		return activeNS
@@ -106,9 +118,9 @@ func Save(path string, cfg *Config) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-// SeedFromKubeconfig reads the active context from ~/.kube/config and constructs an initial Config.
+// SeedFromKubeconfig reads the active context from ~/.kube/config (or KAMPFIRE_KUBECONFIG) and constructs an initial Config.
 func SeedFromKubeconfig() (*Config, error) {
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	loadingRules := NewClientConfigLoadingRules(nil)
 	kubeConfig, err := loadingRules.Load()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load kubeconfig: %w", err)

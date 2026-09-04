@@ -24,9 +24,11 @@ kampfire config set --kubeconfig ~/kampfire-user.yaml
 kampfire config set --token "<your-token>"
 
 # Option B: Use environment variables (takes precedence over saved config)
-export KUBECONFIG=~/kampfire-user.yaml
+export KAMPFIRE_KUBECONFIG=~/kampfire-user.yaml
 export KAMPFIRE_API_TOKEN="<your-token>"
 ```
+
+> **Note**: Kampfire uses `KAMPFIRE_KUBECONFIG` (rather than standard `KUBECONFIG`) so your Kampfire cluster and credentials remain cleanly isolated from your shell's default Kubernetes environment.
 
 Inspect your active configuration and sources at any time:
 ```bash

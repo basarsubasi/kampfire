@@ -84,14 +84,17 @@ func TestConfigViewPrecedence(t *testing.T) {
 		t.Fatalf("failed to save config: %v", err)
 	}
 
-	origKubeconfig := os.Getenv("KUBECONFIG")
+	origKampfireKube := os.Getenv(config.KubeconfigEnvVar)
+	origClassicKube := os.Getenv("KUBECONFIG")
 	origToken := os.Getenv("CAMPFIRE_API_TOKEN")
 	defer func() {
-		os.Setenv("KUBECONFIG", origKubeconfig)
+		os.Setenv(config.KubeconfigEnvVar, origKampfireKube)
+		os.Setenv("KUBECONFIG", origClassicKube)
 		os.Setenv("CAMPFIRE_API_TOKEN", origToken)
 	}()
 
 	// 1. Without env vars: shows (from config)
+	os.Unsetenv(config.KubeconfigEnvVar)
 	os.Unsetenv("KUBECONFIG")
 	os.Unsetenv("CAMPFIRE_API_TOKEN")
 
@@ -117,8 +120,27 @@ func TestConfigViewPrecedence(t *testing.T) {
 		t.Fatalf("expected token (from config), got:\n%s", out)
 	}
 
-	// 2. With KUBECONFIG and CAMPFIRE_API_TOKEN exported: precedence overrides
-	os.Setenv("KUBECONFIG", "/exported/env/kubeconfig")
+	// 2. Setting classic KUBECONFIG must NOT override kampfire config
+	os.Setenv("KUBECONFIG", "/classic/ignored/kubeconfig")
+	rIgnored, wIgnored, _ := os.Pipe()
+	os.Stdout = wIgnored
+
+	_, err = executeCommand("config", "--config", tempCfg)
+	wIgnored.Close()
+	os.Stdout = rescueStdout
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var bufIgnored bytes.Buffer
+	bufIgnored.ReadFrom(rIgnored)
+	outIgnored := bufIgnored.String()
+	if strings.Contains(outIgnored, "/classic/ignored/kubeconfig") {
+		t.Fatalf("expected classic KUBECONFIG to be ignored, but found in output:\n%s", outIgnored)
+	}
+
+	// 3. With KAMPFIRE_KUBECONFIG and CAMPFIRE_API_TOKEN exported: precedence overrides
+	os.Setenv(config.KubeconfigEnvVar, "/exported/env/kubeconfig")
 	os.Setenv("CAMPFIRE_API_TOKEN", "exported-secret-token-abcdef")
 
 	r2, w2, _ := os.Pipe()
@@ -135,8 +157,8 @@ func TestConfigViewPrecedence(t *testing.T) {
 	buf2.ReadFrom(r2)
 	out2 := buf2.String()
 
-	if !strings.Contains(out2, "/exported/env/kubeconfig") || !strings.Contains(out2, "(from $KUBECONFIG)") {
-		t.Fatalf("expected /exported/env/kubeconfig (from $KUBECONFIG), got:\n%s", out2)
+	if !strings.Contains(out2, "/exported/env/kubeconfig") || !strings.Contains(out2, "(from $KAMPFIRE_KUBECONFIG)") {
+		t.Fatalf("expected /exported/env/kubeconfig (from $KAMPFIRE_KUBECONFIG), got:\n%s", out2)
 	}
 	if !strings.Contains(out2, "(from $CAMPFIRE_API_TOKEN)") {
 		t.Fatalf("expected token (from $CAMPFIRE_API_TOKEN), got:\n%s", out2)

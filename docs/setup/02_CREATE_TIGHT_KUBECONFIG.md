@@ -61,7 +61,7 @@ echo "✓ Created tight kubeconfig: ${OUTPUT_FILE}"
 1. Distribute `kampfire-alice.yaml` with an empty `user: {}` section.
 2. User sets their token as an environment variable in their shell:
    ```bash
-   export KUBECONFIG=~/kampfire-alice.yaml
+   export KAMPFIRE_KUBECONFIG=~/kampfire-alice.yaml
    export KAMPFIRE_API_TOKEN="<minted-token>"
    kampfire ps
    ```
@@ -96,7 +96,7 @@ users:
 
 The user only needs one command:
 ```bash
-export KUBECONFIG=~/kampfire-alice.yaml
+export KAMPFIRE_KUBECONFIG=~/kampfire-alice.yaml
 kampfire ps
 ```
 

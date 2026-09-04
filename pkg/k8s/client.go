@@ -29,14 +29,7 @@ type Client struct {
 
 // NewClient creates a new Client based on the Kampfire configuration and optional CLI namespace override.
 func NewClient(cfg *config.Config, namespaceOverride string) (*Client, error) {
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	kubeconfig := os.Getenv("KUBECONFIG")
-	if kubeconfig == "" && cfg != nil {
-		kubeconfig = cfg.KubeconfigPath
-	}
-	if kubeconfig != "" {
-		loadingRules.ExplicitPath = kubeconfig
-	}
+	loadingRules := config.NewClientConfigLoadingRules(cfg)
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
 	restConfig, err := clientConfig.ClientConfig()
 	if err != nil {
