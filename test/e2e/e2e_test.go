@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -37,7 +38,7 @@ rules:
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
-    resources: ["pods/exec", "pods/portforward"]
+    resources: ["pods/exec", "pods/portforward", "pods/log"]
     verbs: ["create", "get"]
 `
 
@@ -218,6 +219,15 @@ func TestE2E_RBACAndTokenAuth(t *testing.T) {
 	}
 	if !strings.Contains(crossPfOut, "forbidden") && !strings.Contains(crossPfOut, "Forbidden") && !strings.Contains(crossPfOut, "403") {
 		t.Errorf("expected 403 Forbidden when Alice port-forwards Bob's sandbox, got: %s", crossPfOut)
+	}
+
+	// 5. Alice tries to read Bob's sandbox logs -> 403 Forbidden
+	crossLogsOut, err := runKampfireWithEnv(t, aliceEnv, "-n", nsBob, "logs", boxBob)
+	if err == nil {
+		t.Fatalf("Alice should not be able to read Bob's sandbox logs, but succeeded: %s", crossLogsOut)
+	}
+	if !strings.Contains(crossLogsOut, "forbidden") && !strings.Contains(crossLogsOut, "Forbidden") && !strings.Contains(crossLogsOut, "403") {
+		t.Errorf("expected 403 Forbidden when Alice reads Bob's sandbox logs, got: %s", crossLogsOut)
 	}
 }
 
@@ -588,3 +598,120 @@ func TestE2E_RunCloneRepo(t *testing.T) {
 		t.Errorf("expected clone failure output, got: %s", out)
 	}
 }
+
+// TestE2E_Logs verifies retrieving container logs with --tail, --head, and standard options.
+func TestE2E_Logs(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "logs-box"
+
+	// Launch a sandbox running a command that outputs 5 distinct lines and sleeps
+	out, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d", "--", "sh", "-c", "echo line1; echo line2; echo line3; echo line4; echo line5; sleep 3600")
+	if err != nil {
+		t.Fatalf("failed to launch logs sandbox: %s (err: %v)", out, err)
+	}
+
+	// 1. Full logs
+	allLogs, err := runKampfire(t, "-n", ns, "logs", boxName)
+	if err != nil {
+		t.Fatalf("failed to retrieve all logs: %s (err: %v)", allLogs, err)
+	}
+	for _, l := range []string{"line1", "line2", "line3", "line4", "line5"} {
+		if !strings.Contains(allLogs, l) {
+			t.Errorf("expected all logs to contain %q, got: %s", l, allLogs)
+		}
+	}
+
+	// 2. Head logs (--head 2)
+	headLogs, err := runKampfire(t, "-n", ns, "logs", "--head", "2", boxName)
+	if err != nil {
+		t.Fatalf("failed to retrieve head logs: %s (err: %v)", headLogs, err)
+	}
+	if !strings.Contains(headLogs, "line1") || !strings.Contains(headLogs, "line2") {
+		t.Errorf("expected head logs to contain line1 and line2, got: %s", headLogs)
+	}
+	if strings.Contains(headLogs, "line3") || strings.Contains(headLogs, "line4") || strings.Contains(headLogs, "line5") {
+		t.Errorf("head logs contained unexpected later lines: %s", headLogs)
+	}
+
+	// 3. Tail logs (--tail 2)
+	tailLogs, err := runKampfire(t, "-n", ns, "logs", "--tail", "2", boxName)
+	if err != nil {
+		t.Fatalf("failed to retrieve tail logs: %s (err: %v)", tailLogs, err)
+	}
+	if !strings.Contains(tailLogs, "line4") || !strings.Contains(tailLogs, "line5") {
+		t.Errorf("expected tail logs to contain line4 and line5, got: %s", tailLogs)
+	}
+	if strings.Contains(tailLogs, "line1") || strings.Contains(tailLogs, "line2") {
+		t.Errorf("tail logs contained unexpected earlier lines: %s", tailLogs)
+	}
+
+	// 4. Timestamps flag (-t / --timestamps)
+	tsLogs, err := runKampfire(t, "-n", ns, "logs", "-t", boxName)
+	if err != nil {
+		t.Fatalf("failed to retrieve logs with timestamps: %s (err: %v)", tsLogs, err)
+	}
+	tsRegex := regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}`)
+	if !tsRegex.MatchString(tsLogs) {
+		t.Errorf("expected logs with -t to contain RFC3339 timestamps, got:\n%s", tsLogs)
+	}
+	if !strings.Contains(tsLogs, "line1") || !strings.Contains(tsLogs, "line5") {
+		t.Errorf("expected logs with -t to contain log content, got:\n%s", tsLogs)
+	}
+
+	// 5. Follow flag (-f) combined with --head 2 (terminates promptly after head lines)
+	headFollowLogs, err := runKampfire(t, "-n", ns, "logs", "-f", "--head", "2", boxName)
+	if err != nil {
+		t.Fatalf("failed to run follow with --head: %s (err: %v)", headFollowLogs, err)
+	}
+	if !strings.Contains(headFollowLogs, "line1") || !strings.Contains(headFollowLogs, "line2") {
+		t.Errorf("expected follow with --head to contain line1 and line2, got: %s", headFollowLogs)
+	}
+	if strings.Contains(headFollowLogs, "line3") {
+		t.Errorf("expected follow with --head to stop after 2 lines, got: %s", headFollowLogs)
+	}
+
+	// 6. Follow flag (-f) streaming dynamic log events
+	streamBox := "stream-box"
+	out, err = runKampfire(t, "-n", ns, "run", "--name", streamBox, "--image", "alpine", "-d", "--", "sh", "-c", "echo stream-start; sleep 1; echo stream-delayed; sleep 3600")
+	if err != nil {
+		t.Fatalf("failed to launch streaming sandbox: %s (err: %v)", out, err)
+	}
+
+	followCmd := exec.Command(kampfireBin, "-n", ns, "logs", "-f", streamBox)
+	var followBuf bytes.Buffer
+	followCmd.Stdout = &followBuf
+	followCmd.Stderr = &followBuf
+
+	if err := followCmd.Start(); err != nil {
+		t.Fatalf("failed to start follow command: %v", err)
+	}
+	t.Cleanup(func() {
+		if followCmd.Process != nil {
+			_ = followCmd.Process.Kill()
+		}
+	})
+
+	// Wait up to 10 seconds for the delayed log line to be streamed
+	var receivedDelayed bool
+	for i := 0; i < 20; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if strings.Contains(followBuf.String(), "stream-delayed") {
+			receivedDelayed = true
+			break
+		}
+	}
+
+	// Terminate follow command gracefully
+	if followCmd.Process != nil {
+		_ = followCmd.Process.Signal(os.Interrupt)
+	}
+
+	if !receivedDelayed {
+		t.Fatalf("timed out waiting for stream-delayed log in follow stream (buffer: %s)", followBuf.String())
+	}
+	if !strings.Contains(followBuf.String(), "stream-start") {
+		t.Errorf("expected follow stream to also contain stream-start, got: %s", followBuf.String())
+	}
+}
+

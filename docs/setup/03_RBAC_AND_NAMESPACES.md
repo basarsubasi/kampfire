@@ -26,9 +26,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
-  # 3. Interactive PTY execution, command exec, and port-forwarding
+  # 3. Interactive PTY execution, command exec, logs, and port-forwarding
   - apiGroups: [""]
-    resources: ["pods/exec", "pods/portforward"]
+    resources: ["pods/exec", "pods/portforward", "pods/log"]
     verbs: ["create", "get"]
 ```
 
