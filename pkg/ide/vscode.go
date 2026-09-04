@@ -39,22 +39,14 @@ exit 1
 	installScript = `
 set -e
 export PATH="/usr/local/bin:/usr/bin:$HOME/.local/bin:/root/.local/bin:$PATH"
-if [ -f /etc/alpine-release ]; then
-    # Alpine Linux uses musl libc; standalone glibc binaries fail due to missing symbols (e.g. fcntl64).
-    # Official recommendation: install via npm and build native modules with C dependencies.
-    echo "Alpine Linux detected. Installing build dependencies and code-server via npm..." >&2
-    apk add --no-cache nodejs npm alpine-sdk bash libstdc++ libc6-compat python3 krb5-dev
-    npm install --global code-server --unsafe-perm
+# Debian/Ubuntu/Fedora/CentOS use official standalone pre-built glibc installer
+if command -v curl >/dev/null 2>&1; then
+    curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local
+elif command -v wget >/dev/null 2>&1; then
+    wget -qO- https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local
 else
-    # Debian/Ubuntu/Fedora/CentOS use official standalone pre-built glibc installer
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local
-    elif command -v wget >/dev/null 2>&1; then
-        wget -qO- https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local
-    else
-        echo "Error: neither curl nor wget found to download code-server" >&2
-        exit 1
-    fi
+    echo "Error: neither curl nor wget found to download code-server" >&2
+    exit 1
 fi
 `
 
@@ -134,7 +126,12 @@ func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInB
 	_, _, err := terminal.ExecSimple(ctx, client, podName, checkCmd)
 
 	if err != nil {
-		ui.Info("VS Code server not found. Installing code-server inside container...")
+		// Alpine Linux uses musl libc, which lacks glibc symbols (like fcntl64) required by code-server.
+		if _, _, aErr := terminal.ExecSimple(ctx, client, podName, []string{"sh", "-c", "[ -f /etc/alpine-release ]"}); aErr == nil {
+			return fmt.Errorf("code-server is not supported on Alpine Linux (musl libc).\nPlease switch to a glibc-based distribution instead (e.g. debian:bookworm-slim or ubuntu:latest):\n  kampfire run --image debian:bookworm-slim -d\n  kampfire ide vscode %s", podName)
+		}
+
+		ui.Error("VS Code server not found. Installing standalone code-server inside container...")
 		_, stderr, err := terminal.ExecSimple(ctx, client, podName, []string{"sh", "-c", installScript})
 		if err != nil {
 			return fmt.Errorf("failed to install code-server in container: %s: %w", stderr, err)

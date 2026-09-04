@@ -30,24 +30,15 @@ func TestGetFreePort(t *testing.T) {
 	defer l.Close()
 }
 
-func TestScripts_AlpineNpmInstallation(t *testing.T) {
+func TestScripts_AlpineGlibcNotice(t *testing.T) {
 	// Must branch on /etc/alpine-release
 	if !strings.Contains(installScript, "/etc/alpine-release") {
 		t.Errorf("installScript must check for /etc/alpine-release")
 	}
 
-	// Must install native C compilation tools and Python for node-gyp on Alpine
-	requiredDeps := []string{"nodejs", "npm", "alpine-sdk", "libstdc++", "libc6-compat", "python3", "krb5-dev"}
-	for _, dep := range requiredDeps {
-		if !strings.Contains(installScript, dep) {
-			t.Errorf("installScript missing Alpine dependency: %s", dep)
-		}
-	}
-
-
-	// Must install code-server via npm with --unsafe-perm
-	if !strings.Contains(installScript, "npm install --global code-server --unsafe-perm") {
-		t.Errorf("installScript must run npm install --global code-server --unsafe-perm")
+	// Must notify user about musl libc and prompt switching to glibc distros
+	if !strings.Contains(installScript, "debian:bookworm-slim") {
+		t.Errorf("installScript should recommend a glibc-based image like debian:bookworm-slim")
 	}
 }
 
