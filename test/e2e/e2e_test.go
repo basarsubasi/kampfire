@@ -35,7 +35,7 @@ rules:
     resources: ["sandboxclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]
-    resources: ["pods"]
+    resources: ["pods", "events"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods/exec", "pods/portforward", "pods/log"]
@@ -714,4 +714,148 @@ func TestE2E_Logs(t *testing.T) {
 		t.Errorf("expected follow stream to also contain stream-start, got: %s", followBuf.String())
 	}
 }
+
+// TestE2E_RunKeepAliveAndFailureDetection verifies default keep-alive on Alpine (without sleep infinity)
+// and ensures fast failure reporting on image pull errors or crashing commands.
+func TestE2E_RunKeepAliveAndFailureDetection(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+
+	// 1. Launch detached Alpine sandbox without command: must not hang or crash on sleep infinity
+	boxKeepAlive := "keepalive-box"
+	out, err := runKampfire(t, "-n", ns, "run", "--name", boxKeepAlive, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("expected detached alpine sandbox with default keep-alive to start successfully, got error: %s (err: %v)", out, err)
+	}
+
+	// Verify sandbox is listed as Running
+	psOut, err := runKampfire(t, "-n", ns, "ps")
+	if err != nil || !strings.Contains(psOut, boxKeepAlive) {
+		t.Errorf("expected ps to list %s, got: %s", boxKeepAlive, psOut)
+	}
+
+	// 2. Launch with nonexistent image: must fail fast with image pull error rather than hanging
+	boxBadImage := "bad-image-box"
+	out, err = runKampfire(t, "-n", ns, "run", "--name", boxBadImage, "--image", "kampfire-fake-registry.invalid/no-such-image:99999", "-d")
+	if err == nil {
+		t.Fatalf("expected run with invalid image to fail, but succeeded: %s", out)
+	}
+	if !strings.Contains(out, "image pull failed") && !strings.Contains(out, "ErrImagePull") && !strings.Contains(out, "ImagePullBackOff") {
+		t.Errorf("expected output to mention image pull failure, got:\n%s", out)
+	}
+
+	// 3. Launch with crashing command: must fail fast reporting premature termination rather than hanging
+	boxCrash := "crash-box"
+	out, err = runKampfire(t, "-n", ns, "run", "--name", boxCrash, "--image", "alpine", "-d", "--", "/bin/sh", "-c", "exit 42")
+	if err == nil {
+		t.Fatalf("expected run with crashing command to fail, but succeeded: %s", out)
+	}
+	if !strings.Contains(out, "terminated prematurely") && !strings.Contains(out, "42") && !strings.Contains(out, "CrashLoopBackOff") {
+		t.Errorf("expected output to mention premature termination/exit code, got:\n%s", out)
+	}
+}
+
+// TestE2E_IDE_VSCode tests the `kampfire ide vscode` workflow:
+// verifying binary resolution, readiness detection, tunnel binding on 0.0.0.0,
+// vscode:// protocol URI emission, and HTTP accessibility.
+func TestE2E_IDE_VSCode(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "vscode-box"
+
+	// 1. Run Alpine sandbox
+	_, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox: %v", err)
+	}
+
+	// 2. Set up simulated code-server in /usr/local/bin to avoid external 80MB download during CI
+	mockScript := `cat << 'EOF' > /usr/local/bin/code-server
+#!/bin/sh
+if [ "$1" = "--version" ]; then
+    echo "4.96.4 mock-version"
+    exit 0
+fi
+while true; do
+    echo -e "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 22\r\n\r\n<h1>code-server</h1>" | nc -l -p 13337 2>/dev/null || sleep 1
+done
+EOF
+chmod +x /usr/local/bin/code-server`
+	_, err = runKampfire(t, "-n", ns, "exec", boxName, "sh", "-c", mockScript)
+	if err != nil {
+		t.Fatalf("failed to install mock code-server in container: %v", err)
+	}
+
+	// 3. Start kampfire ide vscode --browser in background
+	ideCmd := exec.Command(kampfireBin, "-n", ns, "ide", "vscode", boxName, "--browser")
+	var ideStdout, ideStderr bytes.Buffer
+	ideCmd.Stdout = &ideStdout
+	ideCmd.Stderr = &ideStderr
+
+	if err := ideCmd.Start(); err != nil {
+		t.Fatalf("failed to start ide vscode command: %v", err)
+	}
+	t.Cleanup(func() {
+		if ideCmd.Process != nil {
+			_ = ideCmd.Process.Kill()
+		}
+	})
+
+	// 4. Wait for tunnel established message with port and vscode:// URI
+	portRegex := regexp.MustCompile(`0\.0\.0\.0:([0-9]+)`)
+	var localPort string
+	var success bool
+
+	for i := 0; i < 30; i++ {
+		time.Sleep(500 * time.Millisecond)
+		out := ideStdout.String()
+		if match := portRegex.FindStringSubmatch(out); len(match) > 1 {
+			localPort = match[1]
+			success = true
+			break
+		}
+	}
+
+	if !success {
+		t.Fatalf("timed out waiting for VS Code tunnel establishment. stdout:\n%s\nstderr:\n%s", ideStdout.String(), ideStderr.String())
+	}
+
+	// 5. Verify vscode:// URI was printed in terminal output
+	out := ideStdout.String()
+	expectedURI := fmt.Sprintf("vscode://ms-vscode.remote-server/open?url=http://localhost:%s", localPort)
+	if !strings.Contains(out, expectedURI) {
+		t.Errorf("expected stdout to contain VS Code URI %q, got:\n%s", expectedURI, out)
+	}
+
+	// 6. Verify HTTP accessibility on localPort
+	targetURL := fmt.Sprintf("http://127.0.0.1:%s", localPort)
+	client := &http.Client{Timeout: 2 * time.Second}
+	var respBody string
+	var httpSuccess bool
+
+	for i := 0; i < 20; i++ {
+		time.Sleep(500 * time.Millisecond)
+		resp, err := client.Get(targetURL)
+		if err == nil {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if strings.Contains(string(body), "code-server") {
+				respBody = string(body)
+				httpSuccess = true
+				break
+			}
+		}
+	}
+
+	if !httpSuccess {
+		t.Fatalf("HTTP request to %s failed (resp: %s, stderr: %s)", targetURL, respBody, ideStderr.String())
+	}
+
+	// 7. Terminate gracefully with SIGINT
+	if ideCmd.Process != nil {
+		_ = ideCmd.Process.Signal(os.Interrupt)
+	}
+}
+
+
 

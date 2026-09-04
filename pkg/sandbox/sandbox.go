@@ -60,8 +60,8 @@ func Create(ctx context.Context, client *k8s.Client, name, image string, command
 	}
 
 	if len(command) == 0 {
-		// Keep container alive indefinitely
-		command = []string{"sleep", "infinity"}
+		// Keep container alive indefinitely across all Linux distributions (Alpine, Debian, Ubuntu)
+		command = []string{"tail", "-f", "/dev/null"}
 	}
 
 	cmdSlice := make([]interface{}, len(command))
@@ -123,8 +123,20 @@ func Create(ctx context.Context, client *k8s.Client, name, image string, command
 	}, nil
 }
 
-// WaitReady polls until the sandbox pod is Ready or the context is cancelled.
-func WaitReady(ctx context.Context, client *k8s.Client, name string, onTick func(elapsed time.Duration)) (*Info, error) {
+// StatusUpdate represents real-time sandbox status and elapsed time during startup.
+type StatusUpdate struct {
+	Status  string
+	Elapsed time.Duration
+}
+
+// WaitReady polls until the sandbox pod is Ready, encounters a fatal container crash, or the timeout expires.
+func WaitReady(ctx context.Context, client *k8s.Client, name string, onStatus func(StatusUpdate)) (*Info, error) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 120*time.Second)
+		defer cancel()
+	}
+
 	start := time.Now()
 	ticker := time.NewTicker(400 * time.Millisecond)
 	defer ticker.Stop()
@@ -134,30 +146,88 @@ func WaitReady(ctx context.Context, client *k8s.Client, name string, onTick func
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-ticker.C:
-			if onTick != nil {
-				onTick(time.Since(start))
-			}
+			statusText := "Waiting for container to start..."
 
-			obj, err := client.Dynamic.Resource(SandboxGVR).Namespace(client.Namespace).Get(ctx, name, metav1.GetOptions{})
-			if err != nil {
-				continue
-			}
-
-			// Check conditions
-			conditions, found, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
-			if found {
-				for _, c := range conditions {
-					condMap, ok := c.(map[string]interface{})
-					if !ok {
-						continue
+			// 1. Check Kubernetes events for image pull progress
+			if events, err := client.Clientset.CoreV1().Events(client.Namespace).List(ctx, metav1.ListOptions{
+				FieldSelector: "involvedObject.name=" + name,
+			}); err == nil && len(events.Items) > 0 {
+				for i := len(events.Items) - 1; i >= 0; i-- {
+					ev := events.Items[i]
+					switch ev.Reason {
+					case "Pulling":
+						statusText = ev.Message
+					case "Pulled":
+						statusText = "Image pulled, starting container..."
+					case "Created":
+						statusText = "Container created..."
+					case "Started":
+						statusText = "Container started..."
+					case "Failed":
+						if strings.Contains(ev.Message, "pull") || strings.Contains(ev.Message, "image") {
+							return nil, fmt.Errorf("image pull failed: %s", ev.Message)
+						}
 					}
-					cType, _, _ := unstructured.NestedString(condMap, "type")
-					cStatus, _, _ := unstructured.NestedString(condMap, "status")
+					if statusText != "Waiting for container to start..." {
+						break
+					}
+				}
+			}
 
-					if cType == "Ready" && cStatus == "True" {
-						info := extractInfo(obj)
-						info.Status = "Running"
-						return info, nil
+			// 2. Check underlying Pod status for container crash loops or premature exits
+			if pod, err := client.Clientset.CoreV1().Pods(client.Namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
+				for _, cs := range pod.Status.ContainerStatuses {
+					if cs.State.Waiting != nil {
+						reason := cs.State.Waiting.Reason
+						if reason == "ImagePullBackOff" || reason == "ErrImagePull" {
+							detail := cs.State.Waiting.Message
+							if detail == "" {
+								detail = "image not found or pull access denied"
+							}
+							return nil, fmt.Errorf("image pull failed: %s (%s)", reason, detail)
+						}
+						if reason == "CrashLoopBackOff" {
+							detail := cs.State.Waiting.Message
+							if detail == "" && cs.LastTerminationState.Terminated != nil {
+								detail = fmt.Sprintf("exit code %d: %s", cs.LastTerminationState.Terminated.ExitCode, cs.LastTerminationState.Terminated.Reason)
+							}
+							return nil, fmt.Errorf("container failed to start: %s (%s)", reason, detail)
+						}
+						if reason == "ContainerCreating" && statusText == "Waiting for container to start..." {
+							statusText = "Container creating..."
+						}
+					}
+					if cs.State.Terminated != nil && cs.State.Terminated.ExitCode != 0 {
+						return nil, fmt.Errorf("container terminated prematurely with exit code %d: %s", cs.State.Terminated.ExitCode, cs.State.Terminated.Reason)
+					}
+				}
+			}
+
+			if onStatus != nil {
+				onStatus(StatusUpdate{
+					Status:  statusText,
+					Elapsed: time.Since(start),
+				})
+			}
+
+			// 3. Check Sandbox custom resource conditions
+			obj, err := client.Dynamic.Resource(SandboxGVR).Namespace(client.Namespace).Get(ctx, name, metav1.GetOptions{})
+			if err == nil {
+				conditions, found, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
+				if found {
+					for _, c := range conditions {
+						condMap, ok := c.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						cType, _, _ := unstructured.NestedString(condMap, "type")
+						cStatus, _, _ := unstructured.NestedString(condMap, "status")
+
+						if cType == "Ready" && cStatus == "True" {
+							info := extractInfo(obj)
+							info.Status = "Running"
+							return info, nil
+						}
 					}
 				}
 			}

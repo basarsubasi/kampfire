@@ -23,7 +23,7 @@ func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInB
 	ui.Info("Checking VS Code server in sandbox %s...", ui.TitleStyle.Render(podName))
 
 	// 1. Check if code-server is installed
-	checkCmd := []string{"sh", "-c", "command -v code-server || [ -x ~/.local/bin/code-server ]"}
+	checkCmd := []string{"sh", "-c", "command -v code-server || [ -x /usr/local/bin/code-server ] || [ -x ~/.local/bin/code-server ] || [ -x /root/.local/bin/code-server ]"}
 	_, _, err := terminal.ExecSimple(ctx, client, podName, checkCmd)
 
 	if err != nil {
@@ -32,12 +32,12 @@ func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInB
 set -e
 if [ -f /etc/alpine-release ]; then
     apk update >/dev/null 2>&1 || true
-    apk add --no-cache curl gcompat libstdc++ libgcc >/dev/null 2>&1 || true
+    apk add --no-cache curl wget gcompat libstdc++ libgcc procps net-tools >/dev/null 2>&1 || true
 fi
 if command -v curl >/dev/null 2>&1; then
-    curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone
+    curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local
 elif command -v wget >/dev/null 2>&1; then
-    wget -qO- https://code-server.dev/install.sh | sh -s -- --method=standalone
+    wget -qO- https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local
 else
     echo "Error: neither curl nor wget found to download code-server" >&2
     exit 1
@@ -53,32 +53,63 @@ fi
 	// 2. Start code-server if not already running and wait for port 13337 readiness
 	ui.Info("Starting VS Code server process...")
 	startScript := `
-export PATH="$HOME/.local/bin:/root/.local/bin:$PATH"
+export PATH="/usr/local/bin:$HOME/.local/bin:/root/.local/bin:$PATH"
 
 # If on Alpine, ensure gcompat/libstdc++ are present to run glibc Node.js
 if [ -f /etc/alpine-release ]; then
-    if ! command -v gcompat >/dev/null 2>&1 && [ ! -f /lib/libgcompat.so.0 ] && [ ! -f /usr/lib/libgcompat.so.0 ]; then
-        apk add --no-cache gcompat libstdc++ >/dev/null 2>&1 || true
-    fi
+    apk update >/dev/null 2>&1 || true
+    apk add --no-cache curl wget gcompat libstdc++ libgcc procps iproute2 >/dev/null 2>&1 || true
 fi
 
-CODE_BIN="code-server"
-if ! command -v code-server >/dev/null 2>&1; then
-    if [ -x "$HOME/.local/bin/code-server" ]; then
-        CODE_BIN="$HOME/.local/bin/code-server"
-    elif [ -x "/root/.local/bin/code-server" ]; then
-        CODE_BIN="/root/.local/bin/code-server"
-    fi
+# Function to check if port 13337 is actively listening (prefers ss and /proc/net/tcp over nc)
+is_port_listening() {
+    ss -tlpn 2>/dev/null | grep -q ":13337" || \
+    grep -q ":3419 " /proc/net/tcp /proc/net/tcp6 2>/dev/null || \
+    netstat -tlpn 2>/dev/null | grep -q ":13337" || \
+    nc -z 127.0.0.1 13337 2>/dev/null
+}
+
+# If already listening on port 13337, exit early
+if is_port_listening; then
+    exit 0
 fi
 
-if ! pgrep -f "code-server" >/dev/null 2>&1; then
-    nohup "$CODE_BIN" --auth none --bind-addr 0.0.0.0:13337 >/tmp/code-server.log 2>&1 &
+# Locate the code-server binary
+CODE_BIN=""
+for p in "code-server" \
+         "/usr/local/bin/code-server" \
+         "$HOME/.local/bin/code-server" \
+         "/root/.local/bin/code-server"; do
+    if command -v "$p" >/dev/null 2>&1 || [ -x "$p" ]; then
+        CODE_BIN="$p"
+        break
+    fi
+done
+
+if [ -z "$CODE_BIN" ]; then
+    CODE_BIN=$(find / -name "code-server" -type f -perm -111 2>/dev/null | grep bin/code-server | head -n 1)
 fi
+
+if [ -z "$CODE_BIN" ]; then
+    echo "Error: code-server binary not found in container" >&2
+    exit 1
+fi
+
+# Verify the binary is executable on this architecture / libc
+if ! "$CODE_BIN" --version >/tmp/code-server-check.log 2>&1; then
+    echo "Error: failed to execute $CODE_BIN:" >&2
+    cat /tmp/code-server-check.log >&2
+    exit 1
+fi
+
+# Launch daemon in background (do not use pgrep -f which matches this script's own command line)
+"$CODE_BIN" --auth none --bind-addr 0.0.0.0:13337 >/tmp/code-server.log 2>&1 &
+echo $! > /tmp/code-server.pid
 
 # Wait up to 15 seconds for code-server to bind to port 13337
 READY=0
 for i in $(seq 1 30); do
-    if (nc -z 127.0.0.1 13337 || netstat -tlpn 2>/dev/null | grep -q 13337 || ss -tlpn 2>/dev/null | grep -q 13337) 2>/dev/null; then
+    if is_port_listening; then
         READY=1
         break
     fi
@@ -86,7 +117,7 @@ for i in $(seq 1 30); do
 done
 
 if [ "$READY" -ne 1 ]; then
-    echo "code-server failed to bind to port 13337. Process log:" >&2
+    echo "code-server failed to bind to port 13337. Output log:" >&2
     cat /tmp/code-server.log >&2 2>/dev/null || echo "No /tmp/code-server.log found" >&2
     exit 1
 fi

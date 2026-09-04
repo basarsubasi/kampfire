@@ -22,9 +22,9 @@ rules:
   - apiGroups: ["extensions.agents.x-k8s.io"]
     resources: ["sandboxclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # 2. Pod metadata & status
+  # 2. Pod metadata, status & events
   - apiGroups: [""]
-    resources: ["pods"]
+    resources: ["pods", "events"]
     verbs: ["get", "list", "watch"]
   # 3. Interactive PTY execution, command exec, logs, and port-forwarding
   - apiGroups: [""]

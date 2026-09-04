@@ -84,10 +84,17 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 
 		// 2. Wait for Ready condition
 		start := time.Now()
-		_, err = sandbox.WaitReady(ctx, client, info.Name, func(elapsed time.Duration) {
-			fmt.Printf("\r  %s Waiting for container to become ready... [%.1fs]", ui.ColorAmber, elapsed.Seconds())
+		var lastStatusLen int
+		_, err = sandbox.WaitReady(ctx, client, info.Name, func(update sandbox.StatusUpdate) {
+			text := fmt.Sprintf("\r  %s %s [%.1fs]", ui.ColorAmber, update.Status, update.Elapsed.Seconds())
+			pad := 0
+			if lastStatusLen > len(text) {
+				pad = lastStatusLen - len(text)
+			}
+			lastStatusLen = len(text)
+			fmt.Printf("%s%s", text, stringsRepeat(" ", pad))
 		})
-		fmt.Print("\r" + stringsRepeat(" ", 70) + "\r")
+		fmt.Print("\r" + stringsRepeat(" ", 85) + "\r")
 
 		if err != nil {
 			return fmt.Errorf("sandbox did not become ready: %w", err)
