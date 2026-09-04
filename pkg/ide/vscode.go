@@ -171,12 +171,14 @@ func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInB
 	homeDir := ResolveContainerHome(ctx, client, podName)
 	uri := BuildK8sContainerURI(client, podName, homeDir)
 
-	ui.Info("Launching desktop VS Code...")
 	ui.Info("Working Directory: %s", ui.TitleStyle.Render(homeDir))
-	ui.Info("Remote URI:        %s", ui.TitleStyle.Render(uri))
+	ui.Info("Connection URI:    %s", ui.TitleStyle.Render(uri))
 
 	if err := OpenDesktopVSCode(uri); err != nil {
-		return fmt.Errorf("failed to launch desktop VS Code: %w", err)
+		ui.Error("Could not launch 'code' binary in PATH (%v).", err)
+		ui.Info("You can connect manually:")
+		ui.Info("  code --folder-uri %s", uri)
+		return nil
 	}
 	ui.Success("Desktop VS Code launched.")
 	return nil
@@ -192,12 +194,14 @@ func OpenAntigravity(ctx context.Context, client *k8s.Client, podName string, op
 	homeDir := ResolveContainerHome(ctx, client, podName)
 	uri := BuildK8sContainerURI(client, podName, homeDir)
 
-	ui.Info("Launching Antigravity IDE...")
 	ui.Info("Working Directory: %s", ui.TitleStyle.Render(homeDir))
-	ui.Info("Remote URI:        %s", ui.TitleStyle.Render(uri))
+	ui.Info("Connection URI:    %s", ui.TitleStyle.Render(uri))
 
 	if err := OpenDesktopAntigravity(uri); err != nil {
-		return fmt.Errorf("failed to launch Antigravity IDE: %w", err)
+		ui.Error("Could not launch 'antigravity-ide' binary in PATH (%v).", err)
+		ui.Info("You can connect manually:")
+		ui.Info("  antigravity-ide --folder-uri %s", uri)
+		return nil
 	}
 	ui.Success("Antigravity IDE launched.")
 	return nil
