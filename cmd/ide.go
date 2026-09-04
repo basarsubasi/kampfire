@@ -22,7 +22,7 @@ var vscodeCmd = &cobra.Command{
 	Use:   "vscode [flags] SANDBOX_ID",
 	Short: "Auto-install VS Code server inside sandbox and open in desktop VS Code",
 	Long: `Checks if code-server is installed inside the sandbox container.
-If missing, automatically installs standalone code-server, launches the daemon,
+If missing, automatically installs code-server (via npm on Alpine, or standalone binary on glibc distros), launches the daemon,
 tunnels the port securely via Kubernetes SPDY port-forwarding, and opens desktop VS Code.`,
 	Example: `  # Open sandbox in desktop VS Code
   kampfire ide vscode my-sandbox

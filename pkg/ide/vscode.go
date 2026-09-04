@@ -18,60 +18,49 @@ import (
 
 const remotePort = 13337
 
-// OpenVSCode handles auto-installing code-server, launching it, port-forwarding, and opening desktop VS Code.
-func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInBrowser bool) error {
-	ui.Info("Checking VS Code server in sandbox %s...", ui.TitleStyle.Render(podName))
-
-	// 1. Check if code-server is installed
-	checkCmd := []string{"sh", "-c", "command -v code-server || [ -x /usr/local/bin/code-server ] || [ -x ~/.local/bin/code-server ] || [ -x /root/.local/bin/code-server ]"}
-	_, _, err := terminal.ExecSimple(ctx, client, podName, checkCmd)
-
-	if err != nil {
-		ui.Info("VS Code server not found. Installing standalone code-server inside container...")
-		installScript := `
-set -e
-if [ -f /etc/alpine-release ]; then
-    apk update >/dev/null 2>&1 || true
-    apk add --no-cache nodejs curl wget gcompat libstdc++ libgcc procps iproute2 >/dev/null 2>&1 || true
+var (
+	checkScript = `
+export PATH="/usr/local/bin:/usr/bin:$HOME/.local/bin:/root/.local/bin:$PATH"
+if command -v code-server >/dev/null 2>&1; then
+    code-server --version >/dev/null 2>&1
+    exit $?
 fi
-if command -v curl >/dev/null 2>&1; then
-    curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local
-elif command -v wget >/dev/null 2>&1; then
-    wget -qO- https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local
-else
-    echo "Error: neither curl nor wget found to download code-server" >&2
-    exit 1
+if [ -x /usr/local/bin/code-server ]; then
+    /usr/local/bin/code-server --version >/dev/null 2>&1
+    exit $?
 fi
-if [ -f /etc/alpine-release ] && command -v node >/dev/null 2>&1; then
-    SYS_NODE="$(command -v node)"
-    for n in $(find /usr/local/lib /root/.local/lib ~/.local/lib /usr/lib -name node -path "*/code-server*/lib/node" 2>/dev/null); do
-        ln -sf "$SYS_NODE" "$n"
-    done
+if [ -x /usr/bin/code-server ]; then
+    /usr/bin/code-server --version >/dev/null 2>&1
+    exit $?
 fi
+exit 1
 `
-		_, stderr, err := terminal.ExecSimple(ctx, client, podName, []string{"sh", "-c", installScript})
-		if err != nil {
-			return fmt.Errorf("failed to install code-server in container: %s: %w", stderr, err)
-		}
-		ui.Success("VS Code server installed successfully.")
-	}
 
-	// 2. Start code-server if not already running and wait for port 13337 readiness
-	ui.Info("Starting VS Code server process...")
-	startScript := `
-export PATH="/usr/local/bin:$HOME/.local/bin:/root/.local/bin:$PATH"
-
-# If on Alpine, install dependencies and replace bundled glibc node with Alpine's native musl node
+	installScript = `
+set -e
+export PATH="/usr/local/bin:/usr/bin:$HOME/.local/bin:/root/.local/bin:$PATH"
 if [ -f /etc/alpine-release ]; then
-    apk update >/dev/null 2>&1 || true
-    apk add --no-cache nodejs curl wget gcompat libstdc++ libgcc procps iproute2 >/dev/null 2>&1 || true
-    if command -v node >/dev/null 2>&1; then
-        SYS_NODE="$(command -v node)"
-        for n in $(find /usr/local/lib /root/.local/lib ~/.local/lib /usr/lib -name node -path "*/code-server*/lib/node" 2>/dev/null); do
-            ln -sf "$SYS_NODE" "$n"
-        done
+    # Alpine Linux uses musl libc; standalone glibc binaries fail due to missing symbols (e.g. fcntl64).
+    # Official recommendation: install via npm and build native modules with C dependencies.
+    echo "Alpine Linux detected. Installing build dependencies and code-server via npm..." >&2
+    apk add --no-cache nodejs npm alpine-sdk bash libstdc++ libc6-compat python3 krb5-dev
+    npm config set python python3
+    npm install --global code-server --unsafe-perm
+else
+    # Debian/Ubuntu/Fedora/CentOS use official standalone pre-built glibc installer
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO- https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local
+    else
+        echo "Error: neither curl nor wget found to download code-server" >&2
+        exit 1
     fi
 fi
+`
+
+	startScript = `
+export PATH="/usr/local/bin:/usr/bin:$HOME/.local/bin:/root/.local/bin:$PATH"
 
 # Function to check if port 13337 is actively listening (prefers ss and /proc/net/tcp over nc)
 is_port_listening() {
@@ -90,6 +79,7 @@ fi
 CODE_BIN=""
 for p in "code-server" \
          "/usr/local/bin/code-server" \
+         "/usr/bin/code-server" \
          "$HOME/.local/bin/code-server" \
          "/root/.local/bin/code-server"; do
     if command -v "$p" >/dev/null 2>&1 || [ -x "$p" ]; then
@@ -111,13 +101,6 @@ fi
 if ! "$CODE_BIN" --version >/tmp/code-server-check.log 2>&1; then
     echo "Error: failed to execute $CODE_BIN:" >&2
     cat /tmp/code-server-check.log >&2
-    if grep -q "fcntl64" /tmp/code-server-check.log || [ -f /etc/alpine-release ]; then
-        echo "" >&2
-        echo "Hint: Alpine Linux uses musl libc, which lacks glibc symbols (like fcntl64) required by code-server." >&2
-        echo "To use VS Code IDE with full compatibility, launch a glibc-based sandbox:" >&2
-        echo "  kampfire run --image debian:bookworm-slim -d" >&2
-        echo "  kampfire ide vscode <sandbox>" >&2
-    fi
     exit 1
 fi
 
@@ -141,6 +124,27 @@ if [ "$READY" -ne 1 ]; then
     exit 1
 fi
 `
+)
+
+// OpenVSCode handles auto-installing code-server, launching it, port-forwarding, and opening desktop VS Code.
+func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInBrowser bool) error {
+	ui.Info("Checking VS Code server in sandbox %s...", ui.TitleStyle.Render(podName))
+
+	// 1. Check if code-server is installed and runnable
+	checkCmd := []string{"sh", "-c", checkScript}
+	_, _, err := terminal.ExecSimple(ctx, client, podName, checkCmd)
+
+	if err != nil {
+		ui.Info("VS Code server not found. Installing code-server inside container...")
+		_, stderr, err := terminal.ExecSimple(ctx, client, podName, []string{"sh", "-c", installScript})
+		if err != nil {
+			return fmt.Errorf("failed to install code-server in container: %s: %w", stderr, err)
+		}
+		ui.Success("VS Code server installed successfully.")
+	}
+
+	// 2. Start code-server if not already running and wait for port 13337 readiness
+	ui.Info("Starting VS Code server process...")
 	_, stderr, err := terminal.ExecSimple(ctx, client, podName, []string{"sh", "-c", startScript})
 	if err != nil {
 		return fmt.Errorf("failed to start code-server: %s: %w", stderr, err)
