@@ -15,14 +15,14 @@ Before using `kampfire`, you will need:
 
 #### macOS (arm64)
 ```bash
-curl -Lo kampfire https://github.com/basarsubasi/kampfire/releases/download/1.0.0/kampfire-1.0.0-darwin-arm64
+curl -Lo kampfire https://github.com/basarsubasi/kampfire/releases/download/1.1.0/kampfire-1.1.0-darwin-arm64
 chmod +x kampfire
 sudo mv kampfire /usr/local/bin/kampfire
 ```
 
 #### Linux (amd64)
 ```bash
-curl -Lo kampfire https://github.com/basarsubasi/kampfire/releases/download/1.0.0/kampfire-1.0.0-linux-amd64
+curl -Lo kampfire https://github.com/basarsubasi/kampfire/releases/download/1.1.0/kampfire-1.1.0-linux-amd64
 chmod +x kampfire
 sudo mv kampfire /usr/local/bin/kampfire
 ```
