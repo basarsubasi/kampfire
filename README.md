@@ -75,6 +75,12 @@ kampfire run --image alpine/git --with-private-ssh-keys -it
 
 # Clone a git repository into sandbox home upon creation
 kampfire run --image alpine/git --clone-repo "https://github.com/org/repo.git" -it
+
+# Attach persistent volume to /workspace (retains files across stop/start)
+kampfire run --image python:3.12 --persist /workspace -it
+
+# Attach persistent storage with custom size (e.g. 10Gi)
+kampfire run --image python:3.12 --persist /data --persist-size 10Gi -d
 ```
 
 ### 2. Execute Commands & Interactive Shells (`exec`)
@@ -167,7 +173,28 @@ kampfire ide agy my-sandbox --browser
 ```
 > Kampfire connects your desktop IDE directly into the container's home directory over `kubectl exec`. With `--browser`, it runs `code-server` in the container and establishes a port-forwarded web session.
 
-### 8. Cleanup (`rm`)
+### 8. Stop, Start & Restart (`stop`, `start`, `restart`)
+Suspend and resume sandboxes to drop CPU/memory consumption to zero while keeping persistent files intact:
+
+```bash
+# Stop a sandbox (frees compute quota, retains attached persistent volumes)
+kampfire stop my-sandbox
+
+# Stop multiple sandboxes or all in current namespace
+kampfire stop sb-1 sb-2
+kampfire stop -a
+
+# Start / resume a stopped sandbox (re-attaches persistent volume)
+kampfire start my-sandbox
+
+# Start in background without waiting for readiness
+kampfire start -d my-sandbox
+
+# Restart a running or stopped sandbox
+kampfire restart my-sandbox
+```
+
+### 9. Cleanup (`rm`)
 Remove one or more sandboxes by name or ID:
 
 ```bash
@@ -180,7 +207,7 @@ kampfire rm -a
 kampfire rm --all
 ```
 
-### 9. Monitor Resource Usage (`top`)
+### 10. Monitor Resource Usage (`top`)
 View real-time CPU and Memory utilization of your sandboxes:
 
 ```bash
@@ -194,7 +221,7 @@ kampfire top -w
 kampfire top my-sandbox
 ```
 
-### 10. Shell Autocompletion (`completion`)
+### 11. Shell Autocompletion (`completion`)
 Enable dynamic tab completion for commands, flags, and running sandbox names/IDs:
 
 ```bash

@@ -302,3 +302,135 @@ func TestCreateWithOptions_CPU_Memory_Ports(t *testing.T) {
 		t.Errorf("expected extracted.Ports to be '80/TCP, 3000/TCP', got %q", extracted.Ports)
 	}
 }
+
+func TestCreateWithOptions_Persistence(t *testing.T) {
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClient(scheme)
+	fakeK8s := k8sfake.NewSimpleClientset()
+
+	client := &k8s.Client{
+		Dynamic:   dynClient,
+		Clientset: fakeK8s,
+		Namespace: "default",
+	}
+
+	opts := CreateOptions{
+		Name:        "persist-box",
+		Image:       "python:3.12",
+		PersistPath: "/workspace",
+		PersistSize: "10Gi",
+	}
+
+	info, err := CreateWithOptions(context.Background(), client, opts)
+	if err != nil {
+		t.Fatalf("CreateWithOptions() failed: %v", err)
+	}
+	if info.Name != "persist-box" {
+		t.Errorf("expected name persist-box, got %s", info.Name)
+	}
+
+	obj, err := dynClient.Resource(SandboxGVR).Namespace("default").Get(context.Background(), "persist-box", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to retrieve created Sandbox: %v", err)
+	}
+
+	// Verify volumeClaimTemplates
+	vcts, found, err := unstructured.NestedSlice(obj.Object, "spec", "volumeClaimTemplates")
+	if !found || err != nil || len(vcts) == 0 {
+		t.Fatalf("expected volumeClaimTemplates in spec, found=%v, err=%v", found, err)
+	}
+
+	vct := vcts[0].(map[string]interface{})
+	vctName, _, _ := unstructured.NestedString(vct, "metadata", "name")
+	if vctName != "workspace-storage" {
+		t.Errorf("expected vct name workspace-storage, got %s", vctName)
+	}
+
+	storageReq, _, _ := unstructured.NestedString(vct, "spec", "resources", "requests", "storage")
+	if storageReq != "10Gi" {
+		t.Errorf("expected storage request 10Gi, got %s", storageReq)
+	}
+
+	// Verify volumeMounts in container
+	containers, _, _ := unstructured.NestedSlice(obj.Object, "spec", "podTemplate", "spec", "containers")
+	cMap := containers[0].(map[string]interface{})
+	mounts, found, _ := unstructured.NestedSlice(cMap, "volumeMounts")
+	if !found || len(mounts) == 0 {
+		t.Fatalf("expected volumeMounts in container")
+	}
+
+	m0 := mounts[0].(map[string]interface{})
+	if m0["name"] != "workspace-storage" {
+		t.Errorf("expected mount name workspace-storage, got %v", m0["name"])
+	}
+	if m0["mountPath"] != "/workspace" {
+		t.Errorf("expected mountPath /workspace, got %v", m0["mountPath"])
+	}
+}
+
+func TestStopAndStart(t *testing.T) {
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClient(scheme)
+	fakeK8s := k8sfake.NewSimpleClientset()
+
+	client := &k8s.Client{
+		Dynamic:   dynClient,
+		Clientset: fakeK8s,
+		Namespace: "default",
+	}
+
+	// 1. Create a sandbox
+	opts := CreateOptions{
+		Name:  "lifecycle-box",
+		Image: "alpine",
+	}
+	_, err := CreateWithOptions(context.Background(), client, opts)
+	if err != nil {
+		t.Fatalf("failed to create sandbox: %v", err)
+	}
+
+	// 2. Stop the sandbox
+	sb, err := Stop(context.Background(), client, "lifecycle-box")
+	if err != nil {
+		t.Fatalf("Stop() failed: %v", err)
+	}
+	if sb.Status != "Stopped" {
+		t.Errorf("expected status Stopped, got %s", sb.Status)
+	}
+
+	// Verify operatingMode in resource is Suspended
+	obj, err := dynClient.Resource(SandboxGVR).Namespace("default").Get(context.Background(), "lifecycle-box", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get sandbox: %v", err)
+	}
+	opMode, _, _ := unstructured.NestedString(obj.Object, "spec", "operatingMode")
+	if opMode != "Suspended" {
+		t.Errorf("expected operatingMode Suspended, got %s", opMode)
+	}
+
+	// Verify extractInfo returns Stopped
+	extracted := extractInfo(obj)
+	if extracted.Status != "Stopped" {
+		t.Errorf("expected extracted.Status to be Stopped, got %s", extracted.Status)
+	}
+
+	// 3. Start the sandbox
+	sbStart, err := Start(context.Background(), client, "lifecycle-box")
+	if err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	if sbStart.Status != "Starting" {
+		t.Errorf("expected status Starting, got %s", sbStart.Status)
+	}
+
+	// Verify operatingMode in resource is Running
+	obj, err = dynClient.Resource(SandboxGVR).Namespace("default").Get(context.Background(), "lifecycle-box", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get sandbox: %v", err)
+	}
+	opMode, _, _ = unstructured.NestedString(obj.Object, "spec", "operatingMode")
+	if opMode != "Running" {
+		t.Errorf("expected operatingMode Running, got %s", opMode)
+	}
+}
+

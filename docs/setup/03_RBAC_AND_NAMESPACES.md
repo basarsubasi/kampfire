@@ -24,7 +24,7 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # 2. Pod metadata, status & events
   - apiGroups: [""]
-    resources: ["pods", "events"]
+    resources: ["pods", "events", "persistentvolumeclaims"]
     verbs: ["get", "list", "watch"]
   # 3. Interactive PTY execution, command exec, logs, and port-forwarding
   - apiGroups: [""]

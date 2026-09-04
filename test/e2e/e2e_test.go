@@ -35,7 +35,7 @@ rules:
     resources: ["sandboxclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]
-    resources: ["pods", "events"]
+    resources: ["pods", "events", "persistentvolumeclaims"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods/exec", "pods/portforward", "pods/log"]
@@ -1070,5 +1070,91 @@ func TestE2E_Ps_DetectsActivePortForward(t *testing.T) {
 	expectedPortStr := fmt.Sprintf("127.0.0.1:%d->8080/TCP", freePort)
 	if !strings.Contains(psOutAfter, expectedPortStr) {
 		t.Errorf("expected ps to detect active port forward %s, got:\n%s", expectedPortStr, psOutAfter)
+	}
+}
+
+// TestE2E_StopAndStart_Persistence tests workspace storage persistence, custom volume size,
+// stopping sandboxes (suspending them and dropping resource consumption), and resuming them with state intact.
+func TestE2E_StopAndStart_Persistence(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "persist-test-box"
+
+	// 1. Run sandbox with --persist and custom --persist-size 2Gi
+	out, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "--persist", "/workspace", "--persist-size", "2Gi", "-d")
+	if err != nil {
+		t.Fatalf("failed to create sandbox with persistence: %v (output: %s)", err, out)
+	}
+
+	// 2. Verify volumeClaimTemplates has requested 2Gi storage
+	storageCheck := exec.Command("kubectl", "get", "sandbox", boxName, "-n", ns, "-o", "jsonpath={.spec.volumeClaimTemplates[0].spec.resources.requests.storage}")
+	storageOut, err := storageCheck.CombinedOutput()
+	if err != nil {
+		t.Fatalf("failed to query sandbox volumeClaimTemplates: %v (out: %s)", err, string(storageOut))
+	}
+	if strings.TrimSpace(string(storageOut)) != "2Gi" {
+		t.Errorf("expected storage request 2Gi, got %q", string(storageOut))
+	}
+
+	// 3. Write data to the persistent workspace
+	stateMsg := "persistent-state-kampfire-42"
+	writeCmd := fmt.Sprintf("echo '%s' > /workspace/saved_state.txt", stateMsg)
+	out, err = runKampfire(t, "-n", ns, "exec", boxName, "sh", "-c", writeCmd)
+	if err != nil {
+		t.Fatalf("failed to write to persistent workspace: %v (output: %s)", err, out)
+	}
+
+	// 4. Verify file was written
+	out, err = runKampfire(t, "-n", ns, "exec", boxName, "cat", "/workspace/saved_state.txt")
+	if err != nil || !strings.Contains(out, stateMsg) {
+		t.Fatalf("failed to verify initial written state: %v (output: %s)", err, out)
+	}
+
+	// 5. Stop the sandbox
+	stopOut, err := runKampfire(t, "-n", ns, "stop", boxName)
+	if err != nil {
+		t.Fatalf("kampfire stop failed: %v (output: %s)", err, stopOut)
+	}
+
+	// 6. Verify kampfire ps shows STOPPED status
+	psOut, err := runKampfire(t, "-n", ns, "ps")
+	if err != nil {
+		t.Fatalf("kampfire ps failed after stop: %v (output: %s)", err, psOut)
+	}
+	if !strings.Contains(psOut, "STOPPED") {
+		t.Errorf("expected ps to display STOPPED badge, got:\n%s", psOut)
+	}
+
+	// 7. Start the sandbox
+	startOut, err := runKampfire(t, "-n", ns, "start", boxName)
+	if err != nil {
+		t.Fatalf("kampfire start failed: %v (output: %s)", err, startOut)
+	}
+
+	// 8. Verify kampfire ps shows RUNNING status
+	psOut, err = runKampfire(t, "-n", ns, "ps")
+	if err != nil {
+		t.Fatalf("kampfire ps failed after start: %v (output: %s)", err, psOut)
+	}
+	if !strings.Contains(psOut, "RUNNING") {
+		t.Errorf("expected ps to display RUNNING badge, got:\n%s", psOut)
+	}
+
+	// 9. Verify the file in /workspace survived pod recreation!
+	catOut, err := runKampfire(t, "-n", ns, "exec", boxName, "cat", "/workspace/saved_state.txt")
+	if err != nil || !strings.Contains(catOut, stateMsg) {
+		t.Fatalf("persisted file did not survive stop/start lifecycle! err: %v, output: %q", err, catOut)
+	}
+
+	// 10. Test kampfire restart
+	restartOut, err := runKampfire(t, "-n", ns, "restart", boxName)
+	if err != nil {
+		t.Fatalf("kampfire restart failed: %v (output: %s)", err, restartOut)
+	}
+
+	// Verify data still exists after restart
+	catOutAfterRestart, err := runKampfire(t, "-n", ns, "exec", boxName, "cat", "/workspace/saved_state.txt")
+	if err != nil || !strings.Contains(catOutAfterRestart, stateMsg) {
+		t.Fatalf("persisted file did not survive restart! err: %v, output: %q", err, catOutAfterRestart)
 	}
 }

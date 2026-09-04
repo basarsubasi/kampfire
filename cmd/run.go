@@ -31,6 +31,8 @@ var (
 	runCPU                string
 	runMemory             string
 	runPublish            []string
+	runPersist            string
+	runPersistSize        string
 )
 
 var runCmd = &cobra.Command{
@@ -103,6 +105,10 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 
 		ui.Info("Provisioning sandbox %s (%s)...", ui.TitleStyle.Render(name), runImage)
 
+		if runPersist == "true" {
+			runPersist = "/workspace"
+		}
+
 		// 1. Create Sandbox CR with granular options (CPU, Memory, Ports)
 		opts := sandbox.CreateOptions{
 			Name:           name,
@@ -111,6 +117,8 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 			CPU:            runCPU,
 			Memory:         runMemory,
 			PublishedPorts: formattedPorts,
+			PersistPath:    runPersist,
+			PersistSize:    runPersistSize,
 		}
 		info, err := sandbox.CreateWithOptions(ctx, client, opts)
 		if err != nil {
@@ -291,6 +299,8 @@ func init() {
 	runCmd.Flags().StringVar(&runCPU, "cpu", "", "Container CPU request and limit (e.g. 500m, 2)")
 	runCmd.Flags().StringVar(&runMemory, "memory", "", "Container memory request and limit (e.g. 256Mi, 2Gi)")
 	runCmd.Flags().StringArrayVarP(&runPublish, "publish", "p", nil, "Publish container port(s) to host (e.g. 8080:80, 3000)")
+	runCmd.Flags().StringVar(&runPersist, "persist", "", "Mount persistent workspace volume at path (e.g. --persist /workspace)")
+	runCmd.Flags().StringVar(&runPersistSize, "persist-size", "5Gi", "Size of persistent storage volume (e.g. 5Gi, 10Gi)")
 
 	RootCmd.AddCommand(runCmd)
 }

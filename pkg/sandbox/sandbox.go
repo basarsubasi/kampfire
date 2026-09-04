@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 var SandboxGVR = schema.GroupVersionResource{
@@ -63,6 +64,8 @@ type CreateOptions struct {
 	CPU            string
 	Memory         string
 	PublishedPorts []string
+	PersistPath    string
+	PersistSize    string
 }
 
 // CreateWithOptions provisions a new Sandbox custom resource with granular options (CPU, Memory, Ports).
@@ -131,8 +134,54 @@ func CreateWithOptions(ctx context.Context, client *k8s.Client, opts CreateOptio
 		}
 	}
 
+	// Volume mounts: persistent storage
+	if opts.PersistPath != "" {
+		containerObj["volumeMounts"] = []interface{}{
+			map[string]interface{}{
+				"name":      "workspace-storage",
+				"mountPath": opts.PersistPath,
+			},
+		}
+	}
+
 	labels := map[string]interface{}{
 		"agents.x-k8s.io/created-by": "kampfire",
+	}
+
+	specMap := map[string]interface{}{
+		"operatingMode":  "Running",
+		"shutdownPolicy": "Retain",
+		"podTemplate": map[string]interface{}{
+			"spec": map[string]interface{}{
+				"containers": []interface{}{
+					containerObj,
+				},
+			},
+		},
+	}
+
+	if opts.PersistPath != "" {
+		persistSize := opts.PersistSize
+		if persistSize == "" {
+			persistSize = "5Gi"
+		}
+		specMap["volumeClaimTemplates"] = []interface{}{
+			map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name": "workspace-storage",
+				},
+				"spec": map[string]interface{}{
+					"accessModes": []interface{}{
+						"ReadWriteOnce",
+					},
+					"resources": map[string]interface{}{
+						"requests": map[string]interface{}{
+							"storage": persistSize,
+						},
+					},
+				},
+			},
+		}
 	}
 
 	obj := &unstructured.Unstructured{
@@ -144,17 +193,7 @@ func CreateWithOptions(ctx context.Context, client *k8s.Client, opts CreateOptio
 				"namespace": client.Namespace,
 				"labels":    labels,
 			},
-			"spec": map[string]interface{}{
-				"operatingMode":  "Running",
-				"shutdownPolicy": "Retain",
-				"podTemplate": map[string]interface{}{
-					"spec": map[string]interface{}{
-						"containers": []interface{}{
-							containerObj,
-						},
-					},
-				},
-			},
+			"spec": specMap,
 		},
 	}
 
@@ -281,20 +320,23 @@ func WaitReady(ctx context.Context, client *k8s.Client, name string, onStatus fu
 			// 3. Check Sandbox custom resource conditions
 			obj, err := client.Dynamic.Resource(SandboxGVR).Namespace(client.Namespace).Get(ctx, name, metav1.GetOptions{})
 			if err == nil {
-				conditions, found, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
-				if found {
-					for _, c := range conditions {
-						condMap, ok := c.(map[string]interface{})
-						if !ok {
-							continue
-						}
-						cType, _, _ := unstructured.NestedString(condMap, "type")
-						cStatus, _, _ := unstructured.NestedString(condMap, "status")
+				opMode, _, _ := unstructured.NestedString(obj.Object, "spec", "operatingMode")
+				if opMode != "Suspended" {
+					conditions, found, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
+					if found {
+						for _, c := range conditions {
+							condMap, ok := c.(map[string]interface{})
+							if !ok {
+								continue
+							}
+							cType, _, _ := unstructured.NestedString(condMap, "type")
+							cStatus, _, _ := unstructured.NestedString(condMap, "status")
 
-						if cType == "Ready" && cStatus == "True" {
-							info := extractInfo(obj)
-							info.Status = "Running"
-							return info, nil
+							if cType == "Ready" && cStatus == "True" {
+								info := extractInfo(obj)
+								info.Status = "Running"
+								return info, nil
+							}
 						}
 					}
 				}
@@ -325,6 +367,44 @@ func List(ctx context.Context, client *k8s.Client, showAll bool) ([]Info, error)
 // Delete removes a Sandbox by name.
 func Delete(ctx context.Context, client *k8s.Client, name string) error {
 	return client.Dynamic.Resource(SandboxGVR).Namespace(client.Namespace).Delete(ctx, name, metav1.DeleteOptions{})
+}
+
+// Stop suspends a Sandbox by setting its operatingMode to Suspended.
+func Stop(ctx context.Context, client *k8s.Client, nameOrID string) (*Info, error) {
+	sb, err := Find(ctx, client, nameOrID)
+	if err != nil {
+		return nil, err
+	}
+
+	patch := []byte(`{"spec": {"operatingMode": "Suspended"}}`)
+	_, err = client.Dynamic.Resource(SandboxGVR).Namespace(client.Namespace).Patch(
+		ctx, sb.Name, types.MergePatchType, patch, metav1.PatchOptions{},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stop sandbox %s: %w", sb.Name, err)
+	}
+
+	sb.Status = "Stopped"
+	return sb, nil
+}
+
+// Start resumes a suspended Sandbox by setting its operatingMode to Running.
+func Start(ctx context.Context, client *k8s.Client, nameOrID string) (*Info, error) {
+	sb, err := Find(ctx, client, nameOrID)
+	if err != nil {
+		return nil, err
+	}
+
+	patch := []byte(`{"spec": {"operatingMode": "Running"}}`)
+	_, err = client.Dynamic.Resource(SandboxGVR).Namespace(client.Namespace).Patch(
+		ctx, sb.Name, types.MergePatchType, patch, metav1.PatchOptions{},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start sandbox %s: %w", sb.Name, err)
+	}
+
+	sb.Status = "Starting"
+	return sb, nil
 }
 
 // Find searches for a Sandbox by exact name, ID, or ID prefix.
@@ -390,15 +470,20 @@ func extractInfo(obj *unstructured.Unstructured) *Info {
 	if obj.GetDeletionTimestamp() != nil {
 		status = "Terminating"
 	} else {
-		conditions, found, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
-		if found {
-			for _, c := range conditions {
-				if condMap, ok := c.(map[string]interface{}); ok {
-					cType, _, _ := unstructured.NestedString(condMap, "type")
-					cStatus, _, _ := unstructured.NestedString(condMap, "status")
-					if cType == "Ready" && cStatus == "True" {
-						status = "Running"
-						break
+		opMode, _, _ := unstructured.NestedString(obj.Object, "spec", "operatingMode")
+		if opMode == "Suspended" {
+			status = "Stopped"
+		} else {
+			conditions, found, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
+			if found {
+				for _, c := range conditions {
+					if condMap, ok := c.(map[string]interface{}); ok {
+						cType, _, _ := unstructured.NestedString(condMap, "type")
+						cStatus, _, _ := unstructured.NestedString(condMap, "status")
+						if cType == "Ready" && cStatus == "True" {
+							status = "Running"
+							break
+						}
 					}
 				}
 			}

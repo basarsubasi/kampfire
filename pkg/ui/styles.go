@@ -62,6 +62,12 @@ var (
 			Background(ColorFlame).
 			Padding(0, 1).
 			Bold(true)
+
+	BadgeStopped = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(ColorSmoke).
+			Padding(0, 1).
+			Bold(true)
 )
 
 // StatusBadge formats a state into a colorful badge
@@ -71,6 +77,8 @@ func StatusBadge(status string) string {
 		return BadgeReady.Render("RUNNING")
 	case "pending", "starting":
 		return BadgePending.Render("STARTING")
+	case "stopped", "suspended":
+		return BadgeStopped.Render("STOPPED")
 	case "terminating":
 		return BadgeTerminating.Render("TERMINATING")
 	default:
