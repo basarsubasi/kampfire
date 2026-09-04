@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -31,6 +30,10 @@ func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInB
 		ui.Info("VS Code server not found. Installing standalone code-server inside container...")
 		installScript := `
 set -e
+if [ -f /etc/alpine-release ]; then
+    apk update >/dev/null 2>&1 || true
+    apk add --no-cache curl gcompat libstdc++ libgcc >/dev/null 2>&1 || true
+fi
 if command -v curl >/dev/null 2>&1; then
     curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone
 elif command -v wget >/dev/null 2>&1; then
@@ -47,17 +50,49 @@ fi
 		ui.Success("VS Code server installed successfully.")
 	}
 
-	// 2. Start code-server if not already running
+	// 2. Start code-server if not already running and wait for port 13337 readiness
 	ui.Info("Starting VS Code server process...")
 	startScript := `
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:/root/.local/bin:$PATH"
+
+# If on Alpine, ensure gcompat/libstdc++ are present to run glibc Node.js
+if [ -f /etc/alpine-release ]; then
+    if ! command -v gcompat >/dev/null 2>&1 && [ ! -f /lib/libgcompat.so.0 ] && [ ! -f /usr/lib/libgcompat.so.0 ]; then
+        apk add --no-cache gcompat libstdc++ >/dev/null 2>&1 || true
+    fi
+fi
+
+CODE_BIN="code-server"
+if ! command -v code-server >/dev/null 2>&1; then
+    if [ -x "$HOME/.local/bin/code-server" ]; then
+        CODE_BIN="$HOME/.local/bin/code-server"
+    elif [ -x "/root/.local/bin/code-server" ]; then
+        CODE_BIN="/root/.local/bin/code-server"
+    fi
+fi
+
 if ! pgrep -f "code-server" >/dev/null 2>&1; then
-    nohup code-server --auth none --bind-addr 0.0.0.0:13337 >/tmp/code-server.log 2>&1 &
-    sleep 1
+    nohup "$CODE_BIN" --auth none --bind-addr 0.0.0.0:13337 >/tmp/code-server.log 2>&1 &
+fi
+
+# Wait up to 15 seconds for code-server to bind to port 13337
+READY=0
+for i in $(seq 1 30); do
+    if (nc -z 127.0.0.1 13337 || netstat -tlpn 2>/dev/null | grep -q 13337 || ss -tlpn 2>/dev/null | grep -q 13337) 2>/dev/null; then
+        READY=1
+        break
+    fi
+    sleep 0.5
+done
+
+if [ "$READY" -ne 1 ]; then
+    echo "code-server failed to bind to port 13337. Process log:" >&2
+    cat /tmp/code-server.log >&2 2>/dev/null || echo "No /tmp/code-server.log found" >&2
+    exit 1
 fi
 `
 	_, stderr, err := terminal.ExecSimple(ctx, client, podName, []string{"sh", "-c", startScript})
-	if err != nil && !strings.Contains(stderr, "already running") {
+	if err != nil {
 		return fmt.Errorf("failed to start code-server: %s: %w", stderr, err)
 	}
 
