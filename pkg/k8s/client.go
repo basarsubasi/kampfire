@@ -77,13 +77,18 @@ func NewClient(cfg *config.Config, namespaceOverride string) (*Client, error) {
 	}, nil
 }
 
-// PortForward starts an SPDY port-forward to a pod and blocks until stopCh is closed.
+// PortForward starts an SPDY port-forward to a pod on 0.0.0.0 and blocks until stopCh is closed.
 func (c *Client) PortForward(ctx context.Context, podName string, localPort, podPort int, readyCh chan struct{}, stopCh chan struct{}) error {
-	return c.PortForwardPorts(ctx, podName, []string{fmt.Sprintf("%d:%d", localPort, podPort)}, readyCh, stopCh, nil, os.Stderr)
+	return c.PortForwardAddresses(ctx, podName, []string{"0.0.0.0"}, []string{fmt.Sprintf("%d:%d", localPort, podPort)}, readyCh, stopCh, nil, os.Stderr)
 }
 
 // PortForwardPorts starts an SPDY port-forward to a pod with one or more port mappings.
 func (c *Client) PortForwardPorts(ctx context.Context, podName string, ports []string, readyCh chan struct{}, stopCh chan struct{}, stdout, stderr io.Writer) error {
+	return c.PortForwardAddresses(ctx, podName, []string{"127.0.0.1"}, ports, readyCh, stopCh, stdout, stderr)
+}
+
+// PortForwardAddresses starts an SPDY port-forward to a pod with specific listen addresses and port mappings.
+func (c *Client) PortForwardAddresses(ctx context.Context, podName string, addresses []string, ports []string, readyCh chan struct{}, stopCh chan struct{}, stdout, stderr io.Writer) error {
 	roundTripper, upgrader, err := spdy.RoundTripperFor(c.RestConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create round tripper: %w", err)
@@ -97,7 +102,11 @@ func (c *Client) PortForwardPorts(ctx context.Context, podName string, ports []s
 
 	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: roundTripper}, http.MethodPost, url)
 
-	pf, err := portforward.New(dialer, ports, stopCh, readyCh, stdout, stderr)
+	if len(addresses) == 0 {
+		addresses = []string{"0.0.0.0"}
+	}
+
+	pf, err := portforward.NewOnAddresses(dialer, addresses, ports, stopCh, readyCh, stdout, stderr)
 	if err != nil {
 		return fmt.Errorf("failed to create port forward: %w", err)
 	}

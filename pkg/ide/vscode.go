@@ -81,12 +81,15 @@ fi
 	select {
 	case <-readyCh:
 		webURL := fmt.Sprintf("http://localhost:%d", localPort)
-		ui.Success("VS Code server tunnel established on port %d", localPort)
+		vscodeURI := fmt.Sprintf("vscode://ms-vscode.remote-server/open?url=%s", webURL)
+		ui.Success("VS Code server tunnel established on 0.0.0.0:%d", localPort)
 		if openInBrowser {
 			ui.Info("Opening in default browser (%s)...", webURL)
+			ui.Info("VS Code URI:      %s", ui.TitleStyle.Render(vscodeURI))
 			_ = openBrowser(webURL)
 		} else {
 			ui.Info("Launching desktop VS Code...")
+			ui.Info("VS Code URI:      %s", ui.TitleStyle.Render(vscodeURI))
 			ui.Info("Web fallback URL: %s", ui.TitleStyle.Render(webURL))
 			_ = openDesktopVSCode(localPort)
 		}
@@ -113,7 +116,7 @@ fi
 }
 
 func getFreePort() (int, error) {
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	addr, err := net.ResolveTCPAddr("tcp", "0.0.0.0:0")
 	if err != nil {
 		return 0, err
 	}
