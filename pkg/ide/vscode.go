@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -39,7 +40,20 @@ exit 1
 	installScript = `
 set -e
 export PATH="/usr/local/bin:/usr/bin:$HOME/.local/bin:/root/.local/bin:$PATH"
-# Debian/Ubuntu/Fedora/CentOS use official standalone pre-built glibc installer
+if [ -f /etc/alpine-release ]; then
+    echo "Error: Alpine Linux uses musl libc and is not supported by code-server." >&2
+    echo "Please use a glibc-based distribution like debian:bookworm-slim or ubuntu:latest." >&2
+    exit 1
+fi
+if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update >/dev/null 2>&1 && apt-get install -y --no-install-recommends curl ca-certificates >/dev/null 2>&1 || true
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y curl ca-certificates >/dev/null 2>&1 || true
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y curl ca-certificates >/dev/null 2>&1 || true
+    fi
+fi
 if command -v curl >/dev/null 2>&1; then
     curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local
 elif command -v wget >/dev/null 2>&1; then
@@ -117,8 +131,97 @@ fi
 `
 )
 
-// OpenVSCode handles auto-installing code-server, launching it, port-forwarding, and opening desktop VS Code.
+// BuildK8sContainerURI constructs the vscode-remote URI for attaching to a Kubernetes container.
+func BuildK8sContainerURI(client *k8s.Client, podName, homeDir string) string {
+	if homeDir == "" {
+		homeDir = "/root"
+	}
+	if !strings.HasPrefix(homeDir, "/") {
+		homeDir = "/" + homeDir
+	}
+	if client.Context != "" {
+		return fmt.Sprintf("vscode-remote://k8s-container+context=%s+podname=%s+namespace=%s+name=main%s",
+			client.Context, podName, client.Namespace, homeDir)
+	}
+	return fmt.Sprintf("vscode-remote://k8s-container+podname=%s+namespace=%s+name=main%s",
+		podName, client.Namespace, homeDir)
+}
+
+// ResolveContainerHome inspects the container's environment to find its home directory.
+func ResolveContainerHome(ctx context.Context, client *k8s.Client, podName string) string {
+	homeCmd := []string{"sh", "-c", "echo -n \"${HOME:-/root}\""}
+	if stdout, _, err := terminal.ExecSimple(ctx, client, podName, homeCmd); err == nil && strings.TrimSpace(stdout) != "" {
+		return strings.TrimSpace(stdout)
+	}
+	return "/"
+}
+
+// OpenVSCode handles connecting desktop VS Code via kubectl exec, or browser mode via code-server.
 func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInBrowser bool) error {
+	if openInBrowser {
+		return OpenBrowserCodeServer(ctx, client, podName)
+	}
+
+	ui.Info("Connecting to sandbox %s via kubectl exec...", ui.TitleStyle.Render(podName))
+	homeDir := ResolveContainerHome(ctx, client, podName)
+	uri := BuildK8sContainerURI(client, podName, homeDir)
+
+	ui.Info("Launching desktop VS Code...")
+	ui.Info("Working Directory: %s", ui.TitleStyle.Render(homeDir))
+	ui.Info("Remote URI:        %s", ui.TitleStyle.Render(uri))
+
+	if err := OpenDesktopVSCode(uri); err != nil {
+		return fmt.Errorf("failed to launch desktop VS Code: %w", err)
+	}
+	ui.Success("Desktop VS Code launched.")
+	return nil
+}
+
+// OpenAntigravity handles connecting Antigravity IDE via kubectl exec, or browser mode via code-server.
+func OpenAntigravity(ctx context.Context, client *k8s.Client, podName string, openInBrowser bool) error {
+	if openInBrowser {
+		return OpenBrowserCodeServer(ctx, client, podName)
+	}
+
+	ui.Info("Connecting to sandbox %s via kubectl exec...", ui.TitleStyle.Render(podName))
+	homeDir := ResolveContainerHome(ctx, client, podName)
+	uri := BuildK8sContainerURI(client, podName, homeDir)
+
+	ui.Info("Launching Antigravity IDE...")
+	ui.Info("Working Directory: %s", ui.TitleStyle.Render(homeDir))
+	ui.Info("Remote URI:        %s", ui.TitleStyle.Render(uri))
+
+	if err := OpenDesktopAntigravity(uri); err != nil {
+		return fmt.Errorf("failed to launch Antigravity IDE: %w", err)
+	}
+	ui.Success("Antigravity IDE launched.")
+	return nil
+}
+
+// OpenDesktopVSCode launches the desktop VS Code application with the given folder URI.
+func OpenDesktopVSCode(uri string) error {
+	// 1. If "code" CLI is in PATH, try launching directly
+	if codePath, err := exec.LookPath("code"); err == nil {
+		if err := exec.Command(codePath, "--folder-uri", uri).Start(); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("could not find or launch 'code'")
+}
+
+// OpenDesktopAntigravity launches the Antigravity IDE desktop application with the given folder URI.
+func OpenDesktopAntigravity(uri string) error {
+	// 1. Check if antigravity-ide is available in PATH
+	if binPath, err := exec.LookPath("antigravity-ide"); err == nil {
+		if err := exec.Command(binPath, "--folder-uri", uri).Start(); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("could not find or launch 'antigravity-ide'")
+}
+
+// OpenBrowserCodeServer starts code-server in the container, establishes port-forwarding, and opens the default browser.
+func OpenBrowserCodeServer(ctx context.Context, client *k8s.Client, podName string) error {
 	ui.Info("Checking VS Code server in sandbox %s...", ui.TitleStyle.Render(podName))
 
 	// 1. Check if code-server is installed and runnable
@@ -128,10 +231,10 @@ func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInB
 	if err != nil {
 		// Alpine Linux uses musl libc, which lacks glibc symbols (like fcntl64) required by code-server.
 		if _, _, aErr := terminal.ExecSimple(ctx, client, podName, []string{"sh", "-c", "[ -f /etc/alpine-release ]"}); aErr == nil {
-			return fmt.Errorf("code-server is not supported on Alpine Linux (musl libc).\nPlease switch to a glibc-based distribution instead (e.g. debian:bookworm-slim or ubuntu:latest):\n  kampfire run --image debian:bookworm-slim -d\n  kampfire ide vscode %s", podName)
+			return fmt.Errorf("code-server web IDE is not supported on Alpine Linux (musl libc).\nPlease switch to a glibc-based distribution instead (e.g. debian:bookworm-slim or ubuntu:latest):\n  kampfire run --image debian:bookworm-slim -d\n  kampfire ide vscode %s --browser", podName)
 		}
 
-		ui.Error("VS Code server not found. Installing standalone code-server inside container...")
+		ui.Info("VS Code server not found. Installing standalone code-server inside container...")
 		_, stderr, err := terminal.ExecSimple(ctx, client, podName, []string{"sh", "-c", installScript})
 		if err != nil {
 			return fmt.Errorf("failed to install code-server in container: %s: %w", stderr, err)
@@ -166,18 +269,9 @@ func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInB
 	select {
 	case <-readyCh:
 		webURL := fmt.Sprintf("http://localhost:%d", localPort)
-		vscodeURI := fmt.Sprintf("vscode://ms-vscode.remote-server/open?url=%s", webURL)
 		ui.Success("VS Code server tunnel established on 0.0.0.0:%d", localPort)
-		if openInBrowser {
-			ui.Info("Opening in default browser (%s)...", webURL)
-			ui.Info("VS Code URI:      %s", ui.TitleStyle.Render(vscodeURI))
-			_ = openBrowser(webURL)
-		} else {
-			ui.Info("Launching desktop VS Code...")
-			ui.Info("VS Code URI:      %s", ui.TitleStyle.Render(vscodeURI))
-			ui.Info("Web fallback URL: %s", ui.TitleStyle.Render(webURL))
-			_ = openDesktopVSCode(localPort)
-		}
+		ui.Info("Opening in default browser (%s)...", webURL)
+		_ = openBrowser(webURL)
 		ui.Info("Press Ctrl+C to disconnect the tunnel.")
 	case err := <-errCh:
 		return fmt.Errorf("port-forward failed: %w", err)
@@ -213,39 +307,10 @@ func getFreePort() (int, error) {
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
-func openDesktopVSCode(localPort int) error {
-	webURL := fmt.Sprintf("http://localhost:%d", localPort)
-	vscodeURI := fmt.Sprintf("vscode://ms-vscode.remote-server/open?url=%s", webURL)
-
-	// 1. If "code" CLI is in PATH, try launching directly
-	if codePath, err := exec.LookPath("code"); err == nil {
-		if err := exec.Command(codePath, "--open-url", vscodeURI).Start(); err == nil {
-			return nil
-		}
-	}
-
-	// 2. Open via OS protocol handler
-	var cmd string
-	var args []string
-	switch runtime.GOOS {
-	case "windows":
-		cmd = "rundll32"
-		args = []string{"url.dll,FileProtocolHandler", vscodeURI}
-	case "darwin":
-		cmd = "open"
-		args = []string{vscodeURI}
-	default:
-		cmd = "xdg-open"
-		args = []string{vscodeURI}
-	}
-
-	return exec.Command(cmd, args...).Start()
-}
 
 func openBrowser(url string) error {
 	var cmd string
 	var args []string
-
 	switch runtime.GOOS {
 	case "windows":
 		cmd = "rundll32"
@@ -257,6 +322,5 @@ func openBrowser(url string) error {
 		cmd = "xdg-open"
 		args = []string{url}
 	}
-
 	return exec.Command(cmd, args...).Start()
 }

@@ -5,6 +5,8 @@ import (
 	"net"
 	"strings"
 	"testing"
+
+	"github.com/basarsubasi/kampfire/pkg/k8s"
 )
 
 func TestGetFreePort(t *testing.T) {
@@ -73,6 +75,55 @@ func TestScripts_CheckScript(t *testing.T) {
 	// Check script must verify that code-server is actually runnable with --version
 	if !strings.Contains(checkScript, "code-server --version") {
 		t.Errorf("checkScript should verify code-server --version to detect broken binaries")
+	}
+}
+
+func TestBuildK8sContainerURI(t *testing.T) {
+	tests := []struct {
+		name     string
+		context  string
+		podName  string
+		ns       string
+		homeDir  string
+		expected string
+	}{
+		{
+			name:     "with context and root home",
+			context:  "kind-cluster",
+			podName:  "sb-alpine-1234",
+			ns:       "default",
+			homeDir:  "/root",
+			expected: "vscode-remote://k8s-container+context=kind-cluster+podname=sb-alpine-1234+namespace=default+name=main/root",
+		},
+		{
+			name:     "empty context defaults gracefully",
+			context:  "",
+			podName:  "sb-debian-5678",
+			ns:       "user-tenant",
+			homeDir:  "/root",
+			expected: "vscode-remote://k8s-container+podname=sb-debian-5678+namespace=user-tenant+name=main/root",
+		},
+		{
+			name:     "custom user home directory",
+			context:  "prod-cluster",
+			podName:  "sb-node-9999",
+			ns:       "my-ns",
+			homeDir:  "/home/node",
+			expected: "vscode-remote://k8s-container+context=prod-cluster+podname=sb-node-9999+namespace=my-ns+name=main/home/node",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &k8s.Client{
+				Context:   tt.context,
+				Namespace: tt.ns,
+			}
+			uri := BuildK8sContainerURI(client, tt.podName, tt.homeDir)
+			if uri != tt.expected {
+				t.Errorf("BuildK8sContainerURI() = %q, want %q", uri, tt.expected)
+			}
+		})
 	}
 }
 

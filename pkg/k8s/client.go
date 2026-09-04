@@ -24,6 +24,7 @@ type Client struct {
 	Clientset  kubernetes.Interface
 	Dynamic    dynamic.Interface
 	Namespace  string
+	Context    string
 }
 
 // NewClient creates a new Client based on the Kampfire configuration and optional CLI namespace override.
@@ -69,11 +70,17 @@ func NewClient(cfg *config.Config, namespaceOverride string) (*Client, error) {
 	// Resolve namespace with proper precedence (CLI -n > active kubeconfig context > "default")
 	ns := config.ResolveNamespace(namespaceOverride, cfg)
 
+	var currentContext string
+	if raw, err := clientConfig.RawConfig(); err == nil {
+		currentContext = raw.CurrentContext
+	}
+
 	return &Client{
 		RestConfig: restConfig,
 		Clientset:  cs,
 		Dynamic:    dyn,
 		Namespace:  ns,
+		Context:    currentContext,
 	}, nil
 }
 

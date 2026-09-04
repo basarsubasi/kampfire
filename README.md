@@ -132,16 +132,20 @@ kampfire port-forward 0cceb66ac7b7 8080:80 5432:5432
 *Aliases: `kampfire port-forward`, `kampfire forward`, `kampfire pf`.*
 
 ### 7. IDE Integration (`ide`)
-Connect your desktop VS Code directly to a remote sandbox:
+Connect your desktop VS Code or Antigravity IDE directly to a remote sandbox:
 
 ```bash
-# Open directly in desktop VS Code (default)
-kampfire ide vscode my-sandbox
+# Open directly in desktop VS Code (via kubectl exec)
+kampfire ide code my-sandbox
 
-# Open in web browser instead
+# Open directly in desktop Antigravity IDE (via kubectl exec)
+kampfire ide agy my-sandbox
+
+# Open in web browser instead (via code-server)
 kampfire ide vscode my-sandbox --browser
+kampfire ide agy my-sandbox --browser
 ```
-> Kampfire automatically checks for `code-server` in the container, installs it if missing, creates a secure SPDY tunnel, and launches your desktop VS Code.
+> Kampfire connects your desktop IDE directly into the container's home directory over `kubectl exec`. With `--browser`, it runs `code-server` in the container and establishes a port-forwarded web session.
 
 ### 8. Cleanup (`rm`)
 Remove one or more sandboxes by name or ID:
