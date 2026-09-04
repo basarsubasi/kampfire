@@ -52,13 +52,17 @@ var psCmd = &cobra.Command{
 			return nil
 		}
 
-		headers := []string{"SANDBOX ID", "NAME", "IMAGE", "STATUS", "AGE", "IP"}
+		headers := []string{"SANDBOX ID", "NAME", "IMAGE", "STATUS", "AGE", "IP", "PORTS"}
 		var rows [][]string
 
 		for _, sb := range sandboxes {
 			ip := sb.PodIP
 			if ip == "" {
 				ip = "-"
+			}
+			ports := sb.Ports
+			if ports == "" {
+				ports = "-"
 			}
 			rows = append(rows, []string{
 				sb.ID,
@@ -67,6 +71,7 @@ var psCmd = &cobra.Command{
 				ui.StatusBadge(sb.Status),
 				sb.Age,
 				ui.MutedStyle.Render(ip),
+				ui.MutedStyle.Render(ports),
 			})
 		}
 

@@ -26,7 +26,8 @@ If no command is specified when using -it, defaults to an interactive /bin/sh se
 
   # Run a command non-interactively
   kampfire exec my-sandbox uname -a`,
-	Args: cobra.MinimumNArgs(1),
+	Args:              cobra.MinimumNArgs(1),
+	ValidArgsFunction: completeSandboxNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		client, _, err := GetClient()

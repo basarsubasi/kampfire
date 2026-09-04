@@ -49,12 +49,17 @@ kampfire run --image alpine -it /bin/sh
 # Run in background (detached mode)
 kampfire run --name my-sandbox --image debian:bookworm -d
 
+# Set CPU and Memory resource limits
+kampfire run --image python:3.12 --cpu 500m --memory 1Gi -it
+
+# Publish container port(s) to localhost
+kampfire run --image nginx:alpine -p 8080:80 -d
+
 # Inject host SSH keys to access private repositories
 kampfire run --image alpine/git --with-private-ssh-keys -it
 
 # Clone a git repository into sandbox home upon creation
 kampfire run --image alpine/git --clone-repo "https://github.com/org/repo.git" -it
-
 ```
 
 ### 2. Execute Commands & Interactive Shells (`exec`)
@@ -89,7 +94,7 @@ kampfire logs -f --tail 10 my-sandbox
 ```
 
 ### 4. List Sandboxes (`ps`)
-Display formatted status of running sandboxes in the active namespace:
+Display formatted status, IP, and exposed ports of running sandboxes in the active namespace:
 
 ```bash
 # Human-readable table
@@ -158,6 +163,34 @@ kampfire rm my-sandbox 0cceb66ac7b7
 kampfire rm -a
 # or
 kampfire rm --all
+```
+
+### 9. Monitor Resource Usage (`top`)
+View real-time CPU and Memory utilization of your sandboxes:
+
+```bash
+# Snapshot resource usage for all sandboxes
+kampfire top
+
+# Watch live usage continuously
+kampfire top -w
+
+# View usage for a specific sandbox
+kampfire top my-sandbox
+```
+
+### 10. Shell Autocompletion (`completion`)
+Enable dynamic tab completion for commands, flags, and running sandbox names/IDs:
+
+```bash
+# Bash
+source <(kampfire completion bash)
+
+# Zsh
+source <(kampfire completion zsh)
+
+# Fish
+kampfire completion fish | source
 ```
 
 ---

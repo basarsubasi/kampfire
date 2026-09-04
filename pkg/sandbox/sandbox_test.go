@@ -231,3 +231,74 @@ func TestWaitReadyStatusUpdates(t *testing.T) {
 		t.Errorf("expected status 'Pulling image \"python:3.12\"', got: %q", receivedStatus)
 	}
 }
+
+func TestCreateWithOptions_CPU_Memory_Ports(t *testing.T) {
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClient(scheme)
+	fakeK8s := k8sfake.NewSimpleClientset()
+
+	client := &k8s.Client{
+		Dynamic:   dynClient,
+		Clientset: fakeK8s,
+		Namespace: "default",
+	}
+
+	opts := CreateOptions{
+		Name:           "custom-box",
+		Image:          "alpine:latest",
+		CPU:            "500m",
+		Memory:         "256Mi",
+		PublishedPorts: []string{"8080:80", "3000"},
+	}
+
+	info, err := CreateWithOptions(context.Background(), client, opts)
+	if err != nil {
+		t.Fatalf("CreateWithOptions() failed: %v", err)
+	}
+	if info.Name != "custom-box" {
+		t.Errorf("expected name custom-box, got %s", info.Name)
+	}
+
+	// Verify the created resource has resources and ports
+	obj, err := dynClient.Resource(SandboxGVR).Namespace("default").Get(context.Background(), "custom-box", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to retrieve created Sandbox: %v", err)
+	}
+
+	containers, found, _ := unstructured.NestedSlice(obj.Object, "spec", "podTemplate", "spec", "containers")
+	if !found || len(containers) == 0 {
+		t.Fatalf("expected containers slice in Sandbox spec")
+	}
+
+	cMap := containers[0].(map[string]interface{})
+
+	// Check CPU and Memory
+	cpuReq, _, _ := unstructured.NestedString(cMap, "resources", "requests", "cpu")
+	if cpuReq != "500m" {
+		t.Errorf("expected cpu request 500m, got %s", cpuReq)
+	}
+	memReq, _, _ := unstructured.NestedString(cMap, "resources", "requests", "memory")
+	if memReq != "256Mi" {
+		t.Errorf("expected memory request 256Mi, got %s", memReq)
+	}
+
+	// Check Ports
+	ports, found, _ := unstructured.NestedSlice(cMap, "ports")
+	if !found || len(ports) != 2 {
+		t.Fatalf("expected 2 container ports, got %d", len(ports))
+	}
+	p0 := ports[0].(map[string]interface{})
+	if p0["containerPort"] != int64(80) {
+		t.Errorf("expected port 0 containerPort 80, got %v", p0["containerPort"])
+	}
+	p1 := ports[1].(map[string]interface{})
+	if p1["containerPort"] != int64(3000) {
+		t.Errorf("expected port 1 containerPort 3000, got %v", p1["containerPort"])
+	}
+
+	// Verify extractInfo parses ports into Info.Ports
+	extracted := extractInfo(obj)
+	if extracted.Ports != "80/TCP, 3000/TCP" {
+		t.Errorf("expected extracted.Ports to be '80/TCP, 3000/TCP', got %q", extracted.Ports)
+	}
+}

@@ -3,7 +3,12 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/basarsubasi/kampfire/pkg/sandbox"
@@ -23,6 +28,9 @@ var (
 	runAutoRemove         bool
 	runWithPrivateSSHKeys bool
 	runCloneRepo          string
+	runCPU                string
+	runMemory             string
+	runPublish            []string
 )
 
 var runCmd = &cobra.Command{
@@ -71,10 +79,40 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 			name = sandbox.GenerateName(runImage)
 		}
 
+		// Validate published ports if provided
+		var formattedPorts []string
+		for _, p := range runPublish {
+			parts := strings.Split(p, ":")
+			if len(parts) == 1 {
+				val, err := strconv.Atoi(parts[0])
+				if err != nil || val <= 0 || val > 65535 {
+					return fmt.Errorf("invalid port %q: must be between 1 and 65535", parts[0])
+				}
+				formattedPorts = append(formattedPorts, fmt.Sprintf("%d:%d", val, val))
+			} else if len(parts) == 2 {
+				localPort, err1 := strconv.Atoi(parts[0])
+				remotePort, err2 := strconv.Atoi(parts[1])
+				if err1 != nil || err2 != nil || localPort <= 0 || localPort > 65535 || remotePort <= 0 || remotePort > 65535 {
+					return fmt.Errorf("invalid port mapping %q: ports must be between 1 and 65535", p)
+				}
+				formattedPorts = append(formattedPorts, fmt.Sprintf("%d:%d", localPort, remotePort))
+			} else {
+				return fmt.Errorf("invalid port format %q: use [LOCAL_PORT:]REMOTE_PORT", p)
+			}
+		}
+
 		ui.Info("Provisioning sandbox %s (%s)...", ui.TitleStyle.Render(name), runImage)
 
-		// 1. Create Sandbox CR
-		info, err := sandbox.Create(ctx, client, name, runImage, command)
+		// 1. Create Sandbox CR with granular options (CPU, Memory, Ports)
+		opts := sandbox.CreateOptions{
+			Name:           name,
+			Image:          runImage,
+			Command:        command,
+			CPU:            runCPU,
+			Memory:         runMemory,
+			PublishedPorts: formattedPorts,
+		}
+		info, err := sandbox.CreateWithOptions(ctx, client, opts)
 		if err != nil {
 			if strings.Contains(err.Error(), "exceeded quota") {
 				return fmt.Errorf("sandbox limit reached in namespace %s (ResourceQuota exceeded)\n  Use 'kampfire ps' and 'kampfire rm' to free up capacity", client.Namespace)
@@ -127,13 +165,40 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 
 		// Detached mode
 		if runDetach {
+			if len(formattedPorts) > 0 {
+				for _, fp := range formattedPorts {
+					parts := strings.Split(fp, ":")
+					ui.Info("Port published: 127.0.0.1:%s -> %s (connect: kampfire port-forward %s %s)",
+						parts[0], parts[1], info.Name, fp)
+				}
+			}
 			fmt.Println(info.Name)
 			return nil
 		}
 
 		// Interactive mode
 		if runInteractive || runTTY {
+			var stopPortForward chan struct{}
+			if len(formattedPorts) > 0 {
+				stopPortForward = make(chan struct{})
+				readyCh := make(chan struct{})
+				go func() {
+					_ = client.PortForwardPorts(ctx, info.Name, formattedPorts, readyCh, stopPortForward, nil, io.Discard)
+				}()
+				select {
+				case <-readyCh:
+					for _, fp := range formattedPorts {
+						parts := strings.Split(fp, ":")
+						ui.Success("Port forward active: 127.0.0.1:%s -> %s", parts[0], parts[1])
+					}
+				case <-time.After(2 * time.Second):
+				}
+			}
+
 			defer func() {
+				if stopPortForward != nil {
+					close(stopPortForward)
+				}
 				if runAutoRemove {
 					ui.Info("Cleaning up sandbox %s (--rm)...", info.Name)
 					_ = sandbox.Delete(context.Background(), client, info.Name)
@@ -147,6 +212,48 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 
 			err = terminal.RunInteractiveSession(ctx, client, info.Name, shellCmd)
 			if err != nil {
+				return err
+			}
+			return nil
+		}
+
+		// Non-interactive, non-detached with published ports: keep forward alive until interrupted
+		if len(formattedPorts) > 0 {
+			readyCh := make(chan struct{})
+			stopCh := make(chan struct{})
+			errCh := make(chan error, 1)
+
+			go func() {
+				if err := client.PortForwardPorts(ctx, info.Name, formattedPorts, readyCh, stopCh, nil, os.Stderr); err != nil {
+					errCh <- err
+				}
+			}()
+
+			select {
+			case <-readyCh:
+				for _, fp := range formattedPorts {
+					parts := strings.Split(fp, ":")
+					ui.Success("Forwarding from 127.0.0.1:%s -> %s (sandbox: %s)", parts[0], parts[1], ui.TitleStyle.Render(info.Name))
+				}
+				ui.Info("Press Ctrl+C to stop forwarding.")
+			case err := <-errCh:
+				return fmt.Errorf("port-forward failed: %w", err)
+			}
+
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+			defer signal.Stop(sigCh)
+
+			select {
+			case <-sigCh:
+				close(stopCh)
+				if runAutoRemove {
+					ui.Info("Cleaning up sandbox %s (--rm)...", info.Name)
+					_ = sandbox.Delete(context.Background(), client, info.Name)
+				}
+			case <-ctx.Done():
+				close(stopCh)
+			case err := <-errCh:
 				return err
 			}
 		}
@@ -173,6 +280,9 @@ func init() {
 	runCmd.Flags().BoolVar(&runAutoRemove, "rm", false, "Automatically remove the sandbox when it exits")
 	runCmd.Flags().BoolVar(&runWithPrivateSSHKeys, "with-private-ssh-keys", false, "Copy host private SSH keys into sandbox upon creation")
 	runCmd.Flags().StringVar(&runCloneRepo, "clone-repo", "", "Clone a git repository to home upon sandbox creation")
+	runCmd.Flags().StringVar(&runCPU, "cpu", "", "Container CPU request and limit (e.g. 500m, 2)")
+	runCmd.Flags().StringVar(&runMemory, "memory", "", "Container memory request and limit (e.g. 256Mi, 2Gi)")
+	runCmd.Flags().StringArrayVarP(&runPublish, "publish", "p", nil, "Publish container port(s) to host (e.g. 8080:80, 3000)")
 
 	RootCmd.AddCommand(runCmd)
 }

@@ -32,6 +32,7 @@ var rmCmd = &cobra.Command{
 		}
 		return nil
 	},
+	ValidArgsFunction: completeSandboxNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		client, _, err := GetClient()

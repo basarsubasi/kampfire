@@ -32,7 +32,8 @@ Use --browser to launch code-server in a web browser instead.`,
   # Open sandbox in web browser instead (via code-server)
   kampfire ide vscode my-sandbox --browser
   kampfire ide code my-sandbox --browser`,
-	Args: cobra.ExactArgs(1),
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completeSandboxNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		client, _, err := GetClient()
@@ -63,7 +64,8 @@ Use --browser to launch code-server in a web browser instead.`,
   # Open sandbox in web browser instead
   kampfire ide agy my-sandbox --browser
   kampfire ide antigravity my-sandbox --browser`,
-	Args: cobra.ExactArgs(1),
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completeSandboxNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		client, _, err := GetClient()

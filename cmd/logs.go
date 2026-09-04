@@ -39,7 +39,8 @@ and following log output in real time (--follow / -f).`,
 
   # Follow new logs starting from the last 10 lines
   kampfire logs -f --tail 10 my-sandbox`,
-	Args: cobra.ExactArgs(1),
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completeSandboxNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		opts := sandbox.LogOptions{
 			Follow:     logsFollow,

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ type Info struct {
 	Status    string
 	Age       string
 	PodIP     string
+	Ports     string
 	CreatedAt time.Time
 }
 
@@ -53,12 +55,24 @@ func GenerateName(image string) string {
 	return fmt.Sprintf("sb-%s-%s", cleanImage, suffix)
 }
 
-// Create provisions a new Sandbox custom resource.
-func Create(ctx context.Context, client *k8s.Client, name, image string, command []string) (*Info, error) {
+// CreateOptions specifies optional configuration when creating a sandbox.
+type CreateOptions struct {
+	Name           string
+	Image          string
+	Command        []string
+	CPU            string
+	Memory         string
+	PublishedPorts []string
+}
+
+// CreateWithOptions provisions a new Sandbox custom resource with granular options (CPU, Memory, Ports).
+func CreateWithOptions(ctx context.Context, client *k8s.Client, opts CreateOptions) (*Info, error) {
+	name := opts.Name
 	if name == "" {
-		name = GenerateName(image)
+		name = GenerateName(opts.Image)
 	}
 
+	command := opts.Command
 	if len(command) == 0 {
 		// Keep container alive indefinitely across all Linux distributions (Alpine, Debian, Ubuntu)
 		command = []string{"tail", "-f", "/dev/null"}
@@ -67,6 +81,54 @@ func Create(ctx context.Context, client *k8s.Client, name, image string, command
 	cmdSlice := make([]interface{}, len(command))
 	for i, c := range command {
 		cmdSlice[i] = c
+	}
+
+	containerObj := map[string]interface{}{
+		"name":    "main",
+		"image":   opts.Image,
+		"command": cmdSlice,
+	}
+
+	// Resources: CPU and Memory
+	if opts.CPU != "" || opts.Memory != "" {
+		resources := map[string]interface{}{}
+		req := map[string]interface{}{}
+		lim := map[string]interface{}{}
+		if opts.CPU != "" {
+			req["cpu"] = opts.CPU
+			lim["cpu"] = opts.CPU
+		}
+		if opts.Memory != "" {
+			req["memory"] = opts.Memory
+			lim["memory"] = opts.Memory
+		}
+		if len(req) > 0 {
+			resources["requests"] = req
+		}
+		if len(lim) > 0 {
+			resources["limits"] = lim
+		}
+		containerObj["resources"] = resources
+	}
+
+	// Ports: containerPort definitions from PublishedPorts
+	if len(opts.PublishedPorts) > 0 {
+		var ports []interface{}
+		for _, p := range opts.PublishedPorts {
+			parts := strings.Split(p, ":")
+			remotePortStr := parts[0]
+			if len(parts) == 2 {
+				remotePortStr = parts[1]
+			}
+			if portNum, err := strconv.Atoi(remotePortStr); err == nil && portNum > 0 {
+				ports = append(ports, map[string]interface{}{
+					"containerPort": int64(portNum),
+				})
+			}
+		}
+		if len(ports) > 0 {
+			containerObj["ports"] = ports
+		}
 	}
 
 	labels := map[string]interface{}{
@@ -88,11 +150,7 @@ func Create(ctx context.Context, client *k8s.Client, name, image string, command
 				"podTemplate": map[string]interface{}{
 					"spec": map[string]interface{}{
 						"containers": []interface{}{
-							map[string]interface{}{
-								"name":    "main",
-								"image":   image,
-								"command": cmdSlice,
-							},
+							containerObj,
 						},
 					},
 				},
@@ -117,10 +175,20 @@ func Create(ctx context.Context, client *k8s.Client, name, image string, command
 	return &Info{
 		ID:        shortID,
 		Name:      res.GetName(),
-		Image:     image,
+		Image:     opts.Image,
 		Status:    "Starting",
+		Ports:     strings.Join(opts.PublishedPorts, ", "),
 		CreatedAt: res.GetCreationTimestamp().Time,
 	}, nil
+}
+
+// Create provisions a new Sandbox custom resource with default options.
+func Create(ctx context.Context, client *k8s.Client, name, image string, command []string) (*Info, error) {
+	return CreateWithOptions(ctx, client, CreateOptions{
+		Name:    name,
+		Image:   image,
+		Command: command,
+	})
 }
 
 // StatusUpdate represents real-time sandbox status and elapsed time during startup.
@@ -296,12 +364,24 @@ func extractInfo(obj *unstructured.Unstructured) *Info {
 		shortID = name
 	}
 
-	// Get image
+	// Get image and ports
 	var image string
+	var portsList []string
 	containers, found, _ := unstructured.NestedSlice(obj.Object, "spec", "podTemplate", "spec", "containers")
 	if found && len(containers) > 0 {
 		if cMap, ok := containers[0].(map[string]interface{}); ok {
 			image, _, _ = unstructured.NestedString(cMap, "image")
+			if ports, found, _ := unstructured.NestedSlice(cMap, "ports"); found {
+				for _, p := range ports {
+					if pMap, ok := p.(map[string]interface{}); ok {
+						if cPort, ok := pMap["containerPort"].(int64); ok {
+							portsList = append(portsList, fmt.Sprintf("%d/TCP", cPort))
+						} else if cPortFloat, ok := pMap["containerPort"].(float64); ok {
+							portsList = append(portsList, fmt.Sprintf("%d/TCP", int64(cPortFloat)))
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -340,6 +420,7 @@ func extractInfo(obj *unstructured.Unstructured) *Info {
 		Status:    status,
 		Age:       age,
 		PodIP:     podIP,
+		Ports:     strings.Join(portsList, ", "),
 		CreatedAt: creationTime,
 	}
 }

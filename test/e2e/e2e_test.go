@@ -273,7 +273,7 @@ func TestE2E_PSTableAndShortIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("campfire ps failed: %s", out)
 	}
-	for _, header := range []string{"SANDBOX ID", "NAME", "IMAGE", "STATUS", "AGE", "IP"} {
+	for _, header := range []string{"SANDBOX ID", "NAME", "IMAGE", "STATUS", "AGE", "IP", "PORTS"} {
 		if !strings.Contains(out, header) {
 			t.Errorf("ps output missing expected column %q: %s", header, out)
 		}
@@ -856,6 +856,127 @@ chmod +x /usr/local/bin/code-server`
 		_ = ideCmd.Process.Signal(os.Interrupt)
 	}
 }
+
+// TestE2E_Run_ResourceLimits tests running a sandbox with --cpu and --memory flags.
+func TestE2E_Run_ResourceLimits(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "res-box"
+
+	out, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "--cpu", "100m", "--memory", "128Mi", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox with resource limits: %v (output: %s)", err, out)
+	}
+
+	// Verify sandbox is listed and running
+	psOut, err := runKampfire(t, "-n", ns, "ps")
+	if err != nil {
+		t.Fatalf("failed to list sandboxes: %v (output: %s)", err, psOut)
+	}
+	if !strings.Contains(psOut, boxName) {
+		t.Errorf("expected ps output to contain %s, got:\n%s", boxName, psOut)
+	}
+}
+
+// TestE2E_Run_PublishPort tests running a sandbox with published port flag (-p).
+func TestE2E_Run_PublishPort(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "publish-box"
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to find free port: %v", err)
+	}
+	freePort := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+
+	portFlag := fmt.Sprintf("%d:8080", freePort)
+	out, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-p", portFlag, "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox with -p %s: %v (output: %s)", portFlag, err, out)
+	}
+	if !strings.Contains(out, fmt.Sprintf("127.0.0.1:%d -> 8080", freePort)) {
+		t.Errorf("expected output to mention published port 127.0.0.1:%d -> 8080, got:\n%s", freePort, out)
+	}
+
+	// Verify that ps displays the published port in the PORTS column
+	psOut, err := runKampfire(t, "-n", ns, "ps")
+	if err != nil {
+		t.Fatalf("kampfire ps failed: %v (output: %s)", err, psOut)
+	}
+	if !strings.Contains(psOut, "8080/TCP") {
+		t.Errorf("expected kampfire ps to contain 8080/TCP, got:\n%s", psOut)
+	}
+}
+
+// TestE2E_Top tests the `kampfire top` command.
+func TestE2E_Top(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "top-test-box"
+
+	// 1. Run a sandbox
+	_, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox: %v", err)
+	}
+
+	// 2. Run top for the namespace
+	out, err := runKampfire(t, "-n", ns, "top")
+	if err != nil {
+		t.Fatalf("kampfire top failed: %v (output: %s)", err, out)
+	}
+	if !strings.Contains(out, "SANDBOX ID") || !strings.Contains(out, "CPU") || !strings.Contains(out, "MEMORY") {
+		t.Errorf("expected top output to include headers SANDBOX ID, CPU, MEMORY, got:\n%s", out)
+	}
+	if !strings.Contains(out, boxName) {
+		t.Errorf("expected top output to include sandbox %s, got:\n%s", boxName, out)
+	}
+
+	// 3. Run top targeting specific sandbox
+	targetOut, err := runKampfire(t, "-n", ns, "top", boxName)
+	if err != nil {
+		t.Fatalf("kampfire top %s failed: %v (output: %s)", boxName, err, targetOut)
+	}
+	if !strings.Contains(targetOut, boxName) {
+		t.Errorf("expected target top output to contain %s, got:\n%s", boxName, targetOut)
+	}
+}
+
+// TestE2E_Completion tests the `kampfire completion` command and dynamic autocompletion.
+func TestE2E_Completion(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "comp-test-box"
+
+	// 1. Run a sandbox to populate autocompletions
+	_, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox: %v", err)
+	}
+
+	// 2. Test completion scripts generation
+	for _, shell := range []string{"bash", "zsh", "fish"} {
+		out, err := runKampfire(t, "completion", shell)
+		if err != nil {
+			t.Fatalf("kampfire completion %s failed: %v", shell, err)
+		}
+		if len(out) == 0 {
+			t.Errorf("expected non-empty completion output for %s", shell)
+		}
+	}
+
+	// 3. Test dynamic sandbox name completion via Cobra's __complete internal command
+	compOut, err := runKampfire(t, "-n", ns, "__complete", "exec", "")
+	if err != nil {
+		t.Fatalf("dynamic completion failed: %v (output: %s)", err, compOut)
+	}
+	if !strings.Contains(compOut, boxName) {
+		t.Errorf("expected dynamic completions to contain sandbox name %s, got:\n%s", boxName, compOut)
+	}
+}
+
 
 
 

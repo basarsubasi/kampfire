@@ -30,7 +30,8 @@ If only REMOTE_PORT is specified (e.g. 8080), LOCAL_PORT defaults to the same va
 
   # Forward multiple ports simultaneously
   kampfire port-forward 0cceb66ac7b7 8080:80 5432:5432`,
-	Args: cobra.MinimumNArgs(2),
+	Args:              cobra.MinimumNArgs(2),
+	ValidArgsFunction: completeSandboxNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		client, _, err := GetClient()
