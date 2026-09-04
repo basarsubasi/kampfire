@@ -32,7 +32,7 @@ func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInB
 set -e
 if [ -f /etc/alpine-release ]; then
     apk update >/dev/null 2>&1 || true
-    apk add --no-cache curl wget gcompat libstdc++ libgcc procps net-tools >/dev/null 2>&1 || true
+    apk add --no-cache nodejs curl wget gcompat libstdc++ libgcc procps iproute2 >/dev/null 2>&1 || true
 fi
 if command -v curl >/dev/null 2>&1; then
     curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local
@@ -41,6 +41,12 @@ elif command -v wget >/dev/null 2>&1; then
 else
     echo "Error: neither curl nor wget found to download code-server" >&2
     exit 1
+fi
+if [ -f /etc/alpine-release ] && command -v node >/dev/null 2>&1; then
+    SYS_NODE="$(command -v node)"
+    for n in $(find /usr/local/lib /root/.local/lib ~/.local/lib /usr/lib -name node -path "*/code-server*/lib/node" 2>/dev/null); do
+        ln -sf "$SYS_NODE" "$n"
+    done
 fi
 `
 		_, stderr, err := terminal.ExecSimple(ctx, client, podName, []string{"sh", "-c", installScript})
@@ -55,10 +61,16 @@ fi
 	startScript := `
 export PATH="/usr/local/bin:$HOME/.local/bin:/root/.local/bin:$PATH"
 
-# If on Alpine, ensure gcompat/libstdc++ are present to run glibc Node.js
+# If on Alpine, install dependencies and replace bundled glibc node with Alpine's native musl node
 if [ -f /etc/alpine-release ]; then
     apk update >/dev/null 2>&1 || true
-    apk add --no-cache curl wget gcompat libstdc++ libgcc procps iproute2 >/dev/null 2>&1 || true
+    apk add --no-cache nodejs curl wget gcompat libstdc++ libgcc procps iproute2 >/dev/null 2>&1 || true
+    if command -v node >/dev/null 2>&1; then
+        SYS_NODE="$(command -v node)"
+        for n in $(find /usr/local/lib /root/.local/lib ~/.local/lib /usr/lib -name node -path "*/code-server*/lib/node" 2>/dev/null); do
+            ln -sf "$SYS_NODE" "$n"
+        done
+    fi
 fi
 
 # Function to check if port 13337 is actively listening (prefers ss and /proc/net/tcp over nc)
@@ -99,6 +111,13 @@ fi
 if ! "$CODE_BIN" --version >/tmp/code-server-check.log 2>&1; then
     echo "Error: failed to execute $CODE_BIN:" >&2
     cat /tmp/code-server-check.log >&2
+    if grep -q "fcntl64" /tmp/code-server-check.log || [ -f /etc/alpine-release ]; then
+        echo "" >&2
+        echo "Hint: Alpine Linux uses musl libc, which lacks glibc symbols (like fcntl64) required by code-server." >&2
+        echo "To use VS Code IDE with full compatibility, launch a glibc-based sandbox:" >&2
+        echo "  kampfire run --image debian:bookworm-slim -d" >&2
+        echo "  kampfire ide vscode <sandbox>" >&2
+    fi
     exit 1
 fi
 
