@@ -1,15 +1,30 @@
 # kampfire
 A developer-first, Docker-style CLI for Kubernetes Agent Sandboxes.
 
+## Prerequisites
+
+Before using `kampfire`, you will need:
+- **Kubernetes Cluster** with [Kubernetes Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox) installed.
+- **Cluster Access**: A kubeconfig pointing to your cluster and namespace (with a valid token or credentials).
+
+> **Tip:**: To install the CRDs/controller, RBAC, tokens, and quotas, follow the **[Cluster Setup Guide](docs/setup/README.md)**.
+
 ## Quick Start
 
 ### 1. Install the CLI
 
+#### macOS (arm64)
 ```bash
-git clone https://github.com/your-org/kampfire.git
-cd kampfire
-go build -o bin/kampfire .
-sudo mv bin/kampfire /usr/local/bin/kampfire
+curl -Lo kampfire https://github.com/basarsubasi/kampfire/releases/download/1.0.0/kampfire-1.0.0-darwin-arm64
+chmod +x kampfire
+sudo mv kampfire /usr/local/bin/kampfire
+```
+
+#### Linux (amd64)
+```bash
+curl -Lo kampfire https://github.com/basarsubasi/kampfire/releases/download/1.0.0/kampfire-1.0.0-linux-amd64
+chmod +x kampfire
+sudo mv kampfire /usr/local/bin/kampfire
 ```
 
 ### 2. Connect to your Cluster
@@ -34,8 +49,6 @@ Inspect your active configuration and sources at any time:
 ```bash
 kampfire config
 ```
-
-> **Cluster Administrators**: If you need to set up the cluster, RBAC, tokens, quotas, or MicroVM runtimes, see the **[Cluster Setup Guide](docs/setup/README.md)**.
 
 ---
 
