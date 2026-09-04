@@ -57,6 +57,7 @@ if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
     else
         echo "Error: neither curl nor wget found and package manager not installed" >&2
         exit 1
+    fi
 fi
 if command -v curl >/dev/null 2>&1; then
     curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local
