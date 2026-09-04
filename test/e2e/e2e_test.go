@@ -1065,7 +1065,7 @@ func TestE2E_Ps_DetectsActivePortForward(t *testing.T) {
 	// 5. Verify kampfire ps now detects the actively forwarded port
 	psOutAfter, err := runKampfire(t, "-n", ns, "ps")
 	if err != nil {
-		t.Fatalf("ps after port-forward failed: %v (stderr: %s)", err, psOutAfter, pfStderr.String())
+		t.Fatalf("ps after port-forward failed: %v (out: %s, stderr: %s)", err, psOutAfter, pfStderr.String())
 	}
 	expectedPortStr := fmt.Sprintf("127.0.0.1:%d->8080/TCP", freePort)
 	if !strings.Contains(psOutAfter, expectedPortStr) {
