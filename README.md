@@ -146,7 +146,7 @@ kampfire cp ./src my-sandbox:/app/src
 ```
 
 ### 6. Port Forwarding (`port-forward`)
-Forward local ports to a sandbox container over a secure SPDY tunnel:
+Forward local ports to a sandbox container over a secure WebSocket tunnel:
 
 ```bash
 # Forward local port 8080 to container port 80

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -15,7 +15,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/portforward"
-	"k8s.io/client-go/transport/spdy"
+	"k8s.io/client-go/tools/remotecommand"
 )
 
 // Client encapsulates Kubernetes access for Campfire.
@@ -77,30 +77,33 @@ func NewClient(cfg *config.Config, namespaceOverride string) (*Client, error) {
 	}, nil
 }
 
-// PortForward starts an SPDY port-forward to a pod on 0.0.0.0 and blocks until stopCh is closed.
+// NewExecutor creates a WebSocket remotecommand executor for streaming container execution.
+func (c *Client) NewExecutor(method string, u *url.URL) (remotecommand.Executor, error) {
+	return remotecommand.NewWebSocketExecutor(c.RestConfig, method, u.String())
+}
+
+// PortForward starts a WebSocket port-forward to a pod on 0.0.0.0 and blocks until stopCh is closed.
 func (c *Client) PortForward(ctx context.Context, podName string, localPort, podPort int, readyCh chan struct{}, stopCh chan struct{}) error {
 	return c.PortForwardAddresses(ctx, podName, []string{"0.0.0.0"}, []string{fmt.Sprintf("%d:%d", localPort, podPort)}, readyCh, stopCh, nil, os.Stderr)
 }
 
-// PortForwardPorts starts an SPDY port-forward to a pod with one or more port mappings.
+// PortForwardPorts starts a WebSocket port-forward to a pod with one or more port mappings.
 func (c *Client) PortForwardPorts(ctx context.Context, podName string, ports []string, readyCh chan struct{}, stopCh chan struct{}, stdout, stderr io.Writer) error {
 	return c.PortForwardAddresses(ctx, podName, []string{"127.0.0.1"}, ports, readyCh, stopCh, stdout, stderr)
 }
 
-// PortForwardAddresses starts an SPDY port-forward to a pod with specific listen addresses and port mappings.
+// PortForwardAddresses starts a WebSocket port-forward to a pod with specific listen addresses and port mappings.
 func (c *Client) PortForwardAddresses(ctx context.Context, podName string, addresses []string, ports []string, readyCh chan struct{}, stopCh chan struct{}, stdout, stderr io.Writer) error {
-	roundTripper, upgrader, err := spdy.RoundTripperFor(c.RestConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create round tripper: %w", err)
-	}
-
 	url := c.Clientset.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Namespace(c.Namespace).
 		Name(podName).
 		SubResource("portforward").URL()
 
-	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: roundTripper}, http.MethodPost, url)
+	dialer, err := portforward.NewSPDYOverWebsocketDialer(url, c.RestConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create port-forward dialer: %w", err)
+	}
 
 	if len(addresses) == 0 {
 		addresses = []string{"0.0.0.0"}
@@ -113,3 +116,4 @@ func (c *Client) PortForwardAddresses(ctx context.Context, podName string, addre
 
 	return pf.ForwardPorts()
 }
+

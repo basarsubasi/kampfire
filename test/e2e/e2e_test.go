@@ -1189,3 +1189,177 @@ func TestE2E_WithPullSecret(t *testing.T) {
 	}
 }
 
+// TestE2E_PortForward_MultiplePorts verifies forwarding multiple ports simultaneously over WebSockets.
+func TestE2E_PortForward_MultiplePorts(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "pf-multi-box"
+
+	// 1. Run sandbox
+	_, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox: %v", err)
+	}
+
+	// 2. Start two distinct HTTP listeners inside container
+	serverScript1 := `nohup sh -c 'while true; do echo -e "HTTP/1.1 200 OK\r\nContent-Length: 7\r\n\r\nport-81" | nc -l -p 8081; done' >/dev/null 2>&1 &`
+	serverScript2 := `nohup sh -c 'while true; do echo -e "HTTP/1.1 200 OK\r\nContent-Length: 7\r\n\r\nport-82" | nc -l -p 8082; done' >/dev/null 2>&1 &`
+	if _, err = runKampfire(t, "-n", ns, "exec", boxName, "sh", "-c", serverScript1); err != nil {
+		t.Fatalf("failed to start server 1: %v", err)
+	}
+	if _, err = runKampfire(t, "-n", ns, "exec", boxName, "sh", "-c", serverScript2); err != nil {
+		t.Fatalf("failed to start server 2: %v", err)
+	}
+
+	// 3. Find 2 free local ports
+	l1, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to find free port 1: %v", err)
+	}
+	port1 := l1.Addr().(*net.TCPAddr).Port
+	l1.Close()
+
+	l2, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to find free port 2: %v", err)
+	}
+	port2 := l2.Addr().(*net.TCPAddr).Port
+	l2.Close()
+
+	// 4. Start port-forward with both mappings
+	pfCmd := exec.Command(kampfireBin, "-n", ns, "port-forward", boxName, fmt.Sprintf("%d:8081", port1), fmt.Sprintf("%d:8082", port2))
+	var pfStdout, pfStderr bytes.Buffer
+	pfCmd.Stdout = &pfStdout
+	pfCmd.Stderr = &pfStderr
+
+	if err := pfCmd.Start(); err != nil {
+		t.Fatalf("failed to start port-forward command: %v", err)
+	}
+	t.Cleanup(func() {
+		if pfCmd.Process != nil {
+			_ = pfCmd.Process.Kill()
+		}
+	})
+
+	// 5. Poll both endpoints
+	client := &http.Client{Timeout: 2 * time.Second}
+	checkEndpoint := func(port int, expected string) error {
+		url := fmt.Sprintf("http://127.0.0.1:%d", port)
+		for i := 0; i < 20; i++ {
+			time.Sleep(500 * time.Millisecond)
+			resp, err := client.Get(url)
+			if err == nil {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if strings.Contains(string(body), expected) {
+					return nil
+				}
+			}
+		}
+		return fmt.Errorf("did not receive %q on port %d (stdout: %s, stderr: %s)", expected, port, pfStdout.String(), pfStderr.String())
+	}
+
+	if err := checkEndpoint(port1, "port-81"); err != nil {
+		t.Fatalf("endpoint 1 failed: %v", err)
+	}
+	if err := checkEndpoint(port2, "port-82"); err != nil {
+		t.Fatalf("endpoint 2 failed: %v", err)
+	}
+}
+
+// TestE2E_PortForward_LargePayload verifies WebSocket tunnel stability under large data transfers.
+func TestE2E_PortForward_LargePayload(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "pf-large-box"
+
+	_, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox: %v", err)
+	}
+
+	// Generate 1MB of deterministic content inside container
+	genScript := `dd if=/dev/zero bs=1024 count=1024 2>/dev/null | tr '\000' 'A' > /tmp/payload.txt`
+	if _, err = runKampfire(t, "-n", ns, "exec", boxName, "sh", "-c", genScript); err != nil {
+		t.Fatalf("failed to generate payload: %v", err)
+	}
+
+	// Serve payload via nc
+	serverScript := `nohup sh -c 'while true; do echo -e "HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\n\r\n$(cat /tmp/payload.txt)" | nc -l -p 8085; done' >/dev/null 2>&1 &`
+	if _, err = runKampfire(t, "-n", ns, "exec", boxName, "sh", "-c", serverScript); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to find free port: %v", err)
+	}
+	localPort := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+
+	pfCmd := exec.Command(kampfireBin, "-n", ns, "port-forward", boxName, fmt.Sprintf("%d:8085", localPort))
+	if err := pfCmd.Start(); err != nil {
+		t.Fatalf("failed to start port-forward: %v", err)
+	}
+	t.Cleanup(func() {
+		if pfCmd.Process != nil {
+			_ = pfCmd.Process.Kill()
+		}
+	})
+
+	targetURL := fmt.Sprintf("http://127.0.0.1:%d", localPort)
+	client := &http.Client{Timeout: 5 * time.Second}
+	var success bool
+	for i := 0; i < 20; i++ {
+		time.Sleep(500 * time.Millisecond)
+		resp, err := client.Get(targetURL)
+		if err == nil {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if len(body) == 1048576 {
+				success = true
+				break
+			}
+		}
+	}
+
+	if !success {
+		t.Fatalf("failed to retrieve complete 1MB payload over websocket port-forward")
+	}
+}
+
+// TestE2E_Exec_ExitCodeAndStreams verifies WebSocket exec streams stdout, stderr, and non-zero exit code.
+func TestE2E_Exec_ExitCodeAndStreams(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "exec-stream-box"
+
+	_, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox: %v", err)
+	}
+
+	// Exec command that prints to stdout, stderr, and exits with code 42
+	out, err := runKampfire(t, "-n", ns, "exec", boxName, "sh", "-c", "echo out-msg; echo err-msg >&2; exit 42")
+	if err == nil {
+		t.Fatalf("expected non-zero exit error, got nil")
+	}
+
+	if !strings.Contains(out, "out-msg") {
+		t.Errorf("expected output to contain stdout 'out-msg', got: %s", out)
+	}
+	if !strings.Contains(out, "err-msg") {
+		t.Errorf("expected output to contain stderr 'err-msg', got: %s", out)
+	}
+
+	// Check exit code
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		if exitErr.ExitCode() != 42 {
+			t.Errorf("expected exit code 42, got %d", exitErr.ExitCode())
+		}
+	} else {
+		t.Errorf("expected *exec.ExitError, got %T: %v", err, err)
+	}
+}
+
+

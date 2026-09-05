@@ -75,7 +75,7 @@ func copyToSandbox(ctx context.Context, client *k8s.Client, localPath, podName, 
 			Stderr:  true,
 		}, scheme.ParameterCodec)
 
-	exec, err := remotecommand.NewSPDYExecutor(client.RestConfig, "POST", req.URL())
+	exec, err := client.NewExecutor("POST", req.URL())
 	if err != nil {
 		return err
 	}
@@ -171,7 +171,7 @@ func copyToSandbox(ctx context.Context, client *k8s.Client, localPath, podName, 
 			Stderr:  true,
 		}, scheme.ParameterCodec)
 
-	tarExec, err := remotecommand.NewSPDYExecutor(client.RestConfig, "POST", tarReq.URL())
+	tarExec, err := client.NewExecutor("POST", tarReq.URL())
 	if err != nil {
 		return err
 	}
@@ -199,7 +199,7 @@ func copyFromSandbox(ctx context.Context, client *k8s.Client, podName, remotePat
 			Stderr:  true,
 		}, scheme.ParameterCodec)
 
-	exec, err := remotecommand.NewSPDYExecutor(client.RestConfig, "POST", req.URL())
+	exec, err := client.NewExecutor("POST", req.URL())
 	if err != nil {
 		return err
 	}

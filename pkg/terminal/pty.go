@@ -127,7 +127,7 @@ func RunInteractiveSession(ctx context.Context, client *k8s.Client, podName stri
 			TTY:     isTerminal,
 		}, scheme.ParameterCodec)
 
-	exec, err := remotecommand.NewSPDYExecutor(client.RestConfig, "POST", req.URL())
+	exec, err := client.NewExecutor("POST", req.URL())
 	if err != nil {
 		return fmt.Errorf("failed to create executor: %w", err)
 	}
@@ -160,9 +160,9 @@ func ExecSimple(ctx context.Context, client *k8s.Client, podName string, command
 			TTY:     false,
 		}, scheme.ParameterCodec)
 
-	exec, err := remotecommand.NewSPDYExecutor(client.RestConfig, "POST", req.URL())
+	exec, err := client.NewExecutor("POST", req.URL())
 	if err != nil {
-		return "", "", fmt.Errorf("failed to create SPDY executor: %w", err)
+		return "", "", fmt.Errorf("failed to create executor: %w", err)
 	}
 
 	var stdout, stderr bytes.Buffer

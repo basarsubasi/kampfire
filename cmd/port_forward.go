@@ -19,7 +19,7 @@ var portForwardCmd = &cobra.Command{
 	Use:     "port-forward SANDBOX_ID [LOCAL_PORT:]REMOTE_PORT...",
 	Aliases: []string{"forward", "pf"},
 	Short:   "Forward one or more local ports to a sandbox container",
-	Long: `Establishes a secure SPDY port-forward tunnel from your local machine to a sandbox container.
+	Long: `Establishes a secure WebSocket port-forward tunnel from your local machine to a sandbox container.
 Supports multiple port pairs in the format [LOCAL_PORT:]REMOTE_PORT.
 If only REMOTE_PORT is specified (e.g. 8080), LOCAL_PORT defaults to the same value.`,
 	Example: `  # Forward local port 8080 to container port 80
