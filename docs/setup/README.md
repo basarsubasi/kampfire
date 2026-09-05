@@ -1,6 +1,9 @@
-# 🚀 Production Cluster Setup Guide
+# Production Cluster Setup Guide
 
 This guide walks cluster administrators through setting up an enterprise-grade, secure, multi-tenant Kubernetes cluster for Kampfire and Kubernetes SIG Agent Sandbox.
+
+> **Automated Setup with Ansible:**
+> If you prefer an automated setup, the **[kata-fc-cilium](https://github.com/basarsubasi/kata-fc-cilium)** repository provides end-to-end Ansible playbooks and Kubespray automation to provision a production cluster with Kata Containers (Firecracker MicroVM isolation), Cilium CNI, devmapper, OpenEBS LVM storage, Kyverno, and Agent Sandbox.
 
 ---
 

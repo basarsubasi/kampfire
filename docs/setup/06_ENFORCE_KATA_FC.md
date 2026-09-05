@@ -12,6 +12,8 @@ Kampfire intentionally keeps the developer CLI clean (`kampfire run` does not re
 
 Instead, **Kubernetes enforces `kata-fc` cluster-side** so that every sandbox created by Kampfire or Agent Sandbox unconditionally boots in a MicroVM.
 
+> **Automated Setup with Ansible:** The **[kata-fc-cilium](https://github.com/basarsubasi/kata-fc-cilium)** repository contains ready-to-run Ansible playbooks that configure the containerd `kata-fc` runtime, devmapper thin-pools, OpenEBS LVM CSI, and the Kyverno mutation policy automatically.
+
 ---
 
 ## 1. Register the `kata-fc` RuntimeClass

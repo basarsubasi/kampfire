@@ -7,7 +7,7 @@ Before using `kampfire`, you will need:
 - **Kubernetes Cluster** with [Kubernetes Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox) installed.
 - **Cluster Access**: A kubeconfig pointing to your cluster and namespace (with a valid token or credentials).
 
-> **Tip:** To install the CRDs/controller, RBAC, tokens, and quotas, follow the **[Cluster Setup Guide](docs/setup/README.md)**.
+> **Tip:** To set everything up automatically with Ansible (Kata Containers, Firecracker, Cilium CNI, and Agent Sandbox), refer to **[kata-fc-cilium](https://github.com/basarsubasi/kata-fc-cilium)**.
 
 > **Info:** To quickly provision a new tenant user (namespace, ServiceAccount, RBAC, token, and tight kubeconfig), run [`scripts/provision-user.sh`](scripts/provision-user.sh):
 > ```bash
@@ -48,7 +48,6 @@ export KAMPFIRE_KUBECONFIG=~/kampfire-user.yaml
 export KAMPFIRE_API_TOKEN="<your-token>"
 ```
 
-> **Note**: Kampfire uses `KAMPFIRE_KUBECONFIG` (rather than standard `KUBECONFIG`) so your Kampfire cluster and credentials remain cleanly isolated from your shell's default Kubernetes environment.
 
 Inspect your active configuration and sources at any time:
 ```bash

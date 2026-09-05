@@ -2,6 +2,8 @@
 
 Before Kampfire can provision containers, your cluster must have the official Kubernetes SIG **`agent-sandbox`** Custom Resource Definitions (CRDs) and controller installed.
 
+> **Tip:** If deploying your cluster from scratch with Ansible, the **[kata-fc-cilium](https://github.com/basarsubasi/kata-fc-cilium)** repository automates the installation of Kyverno, Agent Sandbox v1.0.0, and Kata-FC runtime classes.
+
 ---
 
 ## Prerequisites
