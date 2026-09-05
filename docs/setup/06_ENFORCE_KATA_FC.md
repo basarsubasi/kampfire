@@ -6,7 +6,7 @@ By using **Kata Containers with Firecracker (`kata-fc`)**, each sandbox is execu
 
 ---
 
-## 🎯 Architecture: Cluster-Side Enforcement
+## Architecture: Cluster-Side Enforcement
 
 Kampfire intentionally keeps the developer CLI clean (`kampfire run` does not require users to pass `--runtime-class`). 
 

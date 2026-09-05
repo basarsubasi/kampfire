@@ -4,7 +4,7 @@ A **tight kubeconfig** provides developers with cluster connectivity (the API se
 
 ---
 
-## 🎯 The Philosophy of a Tight Kubeconfig
+## The Philosophy of a Tight Kubeconfig
 
 In a production or shared cluster:
 1. **Zero High-Privilege Secrets**: Never hand users certificates or tokens from `kube-admin` or cluster-level roles.
