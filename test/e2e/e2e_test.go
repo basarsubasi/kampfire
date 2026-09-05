@@ -251,7 +251,34 @@ func TestE2E_RunAndExec(t *testing.T) {
 		t.Errorf("expected output to mention %s, got: %s", boxName, out)
 	}
 
-	// 2. Exec command inside sandbox
+	// 2. Verify metadata labels on Sandbox custom resource
+	crCheck := exec.Command("kubectl", "get", "sandbox", boxName, "-n", ns, "-o", `jsonpath={.metadata.labels['agents\.x-k8s\.io/created-by']}`)
+	crOut, err := crCheck.CombinedOutput()
+	if err != nil {
+		t.Errorf("failed to get sandbox labels: %s (err: %v)", string(crOut), err)
+	} else if strings.TrimSpace(string(crOut)) != "kampfire" {
+		t.Errorf("expected sandbox CR label agents.x-k8s.io/created-by=kampfire, got: %s", string(crOut))
+	}
+
+	// 3. Verify labels on spec.podTemplate.metadata.labels
+	templateCheck := exec.Command("kubectl", "get", "sandbox", boxName, "-n", ns, "-o", `jsonpath={.spec.podTemplate.metadata.labels['agents\.x-k8s\.io/created-by']}`)
+	templateOut, err := templateCheck.CombinedOutput()
+	if err != nil {
+		t.Errorf("failed to get podTemplate labels: %s (err: %v)", string(templateOut), err)
+	} else if strings.TrimSpace(string(templateOut)) != "kampfire" {
+		t.Errorf("expected podTemplate label agents.x-k8s.io/created-by=kampfire, got: %s", string(templateOut))
+	}
+
+	// 4. Verify labels on provisioned Pod (ensures it is stamped as kampfire, not 'unknown')
+	podCheck := exec.Command("kubectl", "get", "pod", boxName, "-n", ns, "-o", `jsonpath={.metadata.labels['agents\.x-k8s\.io/created-by']}`)
+	podOut, err := podCheck.CombinedOutput()
+	if err != nil {
+		t.Errorf("failed to get pod labels: %s (err: %v)", string(podOut), err)
+	} else if strings.TrimSpace(string(podOut)) != "kampfire" {
+		t.Errorf("expected pod label agents.x-k8s.io/created-by=kampfire, got: %s", string(podOut))
+	}
+
+	// 5. Exec command inside sandbox
 	out, err = runKampfire(t, "-n", ns, "exec", boxName, "uname", "-a")
 	if err != nil {
 		t.Fatalf("campfire exec failed: %s (err: %v)", out, err)

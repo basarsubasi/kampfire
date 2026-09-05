@@ -87,6 +87,16 @@ func TestCreateDefaultKeepAliveCommand(t *testing.T) {
 	if cmds[0] != "tail" || cmds[1] != "-f" || cmds[2] != "/dev/null" {
 		t.Errorf("expected ['tail', '-f', '/dev/null'], got %v", cmds)
 	}
+
+	// Verify labels on Sandbox metadata
+	if createdBy, _, _ := unstructured.NestedString(obj.Object, "metadata", "labels", "agents.x-k8s.io/created-by"); createdBy != "kampfire" {
+		t.Errorf("expected Sandbox metadata label agents.x-k8s.io/created-by=kampfire, got %s", createdBy)
+	}
+
+	// Verify labels on podTemplate metadata
+	if createdBy, _, _ := unstructured.NestedString(obj.Object, "spec", "podTemplate", "metadata", "labels", "agents.x-k8s.io/created-by"); createdBy != "kampfire" {
+		t.Errorf("expected podTemplate metadata label agents.x-k8s.io/created-by=kampfire, got %s", createdBy)
+	}
 }
 
 func TestWaitReadyCrashLoopBackOff(t *testing.T) {

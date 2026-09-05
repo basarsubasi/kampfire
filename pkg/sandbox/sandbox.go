@@ -174,6 +174,9 @@ func CreateWithOptions(ctx context.Context, client *k8s.Client, opts CreateOptio
 		"operatingMode":  "Running",
 		"shutdownPolicy": "Retain",
 		"podTemplate": map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"labels": labels,
+			},
 			"spec": podSpec,
 		},
 	}
