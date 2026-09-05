@@ -48,7 +48,7 @@ func TestFormatAge(t *testing.T) {
 	}
 }
 
-func TestCreateDefaultKeepAliveCommand(t *testing.T) {
+func TestCreateNoCommandDefaultsToContainerEntrypoint(t *testing.T) {
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClient(scheme)
 	fakeK8s := k8sfake.NewSimpleClientset()
@@ -59,6 +59,7 @@ func TestCreateDefaultKeepAliveCommand(t *testing.T) {
 		Namespace: "default",
 	}
 
+	// 1. When command is nil, command should be omitted so container runs its own entrypoint/cmd
 	info, err := Create(context.Background(), client, "test-box", "alpine", nil)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
@@ -67,7 +68,6 @@ func TestCreateDefaultKeepAliveCommand(t *testing.T) {
 		t.Errorf("expected name test-box, got %s", info.Name)
 	}
 
-	// Verify the created unstructured object has tail -f /dev/null and NOT sleep infinity
 	obj, err := dynClient.Resource(SandboxGVR).Namespace("default").Get(context.Background(), "test-box", metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("failed to retrieve created Sandbox: %v", err)
@@ -79,13 +79,38 @@ func TestCreateDefaultKeepAliveCommand(t *testing.T) {
 	}
 
 	cMap := containers[0].(map[string]interface{})
-	cmds, found, _ := unstructured.NestedSlice(cMap, "command")
-	if !found || len(cmds) != 3 {
-		t.Fatalf("expected 3 command arguments, got %v", cmds)
+	_, cmdFound, _ := unstructured.NestedSlice(cMap, "command")
+	if cmdFound {
+		t.Errorf("expected command to be omitted when nil so container uses its own entrypoint/cmd, but found command field")
 	}
 
-	if cmds[0] != "tail" || cmds[1] != "-f" || cmds[2] != "/dev/null" {
-		t.Errorf("expected ['tail', '-f', '/dev/null'], got %v", cmds)
+	// Verify stdin and tty are omitted by default when not specified
+	if _, ok := cMap["stdin"]; ok {
+		t.Errorf("expected stdin to be omitted when not specified, got %v", cMap["stdin"])
+	}
+	if _, ok := cMap["tty"]; ok {
+		t.Errorf("expected tty to be omitted when not specified, got %v", cMap["tty"])
+	}
+
+	// Verify default UTF-8 and terminal environment variables
+	envs, found, err := unstructured.NestedSlice(cMap, "env")
+	if !found || err != nil || len(envs) == 0 {
+		t.Fatalf("expected env slice in container, got found=%v err=%v", found, err)
+	}
+	envMap := make(map[string]string)
+	for _, e := range envs {
+		if em, ok := e.(map[string]interface{}); ok {
+			envMap[em["name"].(string)] = em["value"].(string)
+		}
+	}
+	if envMap["LANG"] != "C.UTF-8" {
+		t.Errorf("expected LANG=C.UTF-8, got %q", envMap["LANG"])
+	}
+	if envMap["LC_ALL"] != "C.UTF-8" {
+		t.Errorf("expected LC_ALL=C.UTF-8, got %q", envMap["LC_ALL"])
+	}
+	if envMap["TERM"] != "xterm-256color" {
+		t.Errorf("expected TERM=xterm-256color, got %q", envMap["TERM"])
 	}
 
 	// Verify labels on Sandbox metadata
@@ -96,6 +121,35 @@ func TestCreateDefaultKeepAliveCommand(t *testing.T) {
 	// Verify labels on podTemplate metadata
 	if createdBy, _, _ := unstructured.NestedString(obj.Object, "spec", "podTemplate", "metadata", "labels", "agents.x-k8s.io/created-by"); createdBy != "kampfire" {
 		t.Errorf("expected podTemplate metadata label agents.x-k8s.io/created-by=kampfire, got %s", createdBy)
+	}
+
+	// 2. When command and stdin/tty are specified, they should be set
+	optsCustom := CreateOptions{
+		Name:    "custom-box",
+		Image:   "alpine",
+		Command: []string{"python3", "app.py"},
+		Stdin:   true,
+		TTY:     true,
+	}
+	infoCustom, err := CreateWithOptions(context.Background(), client, optsCustom)
+	if err != nil {
+		t.Fatalf("CreateWithOptions failed: %v", err)
+	}
+	objCustom, err := dynClient.Resource(SandboxGVR).Namespace("default").Get(context.Background(), infoCustom.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to retrieve custom Sandbox: %v", err)
+	}
+	customContainers, _, _ := unstructured.NestedSlice(objCustom.Object, "spec", "podTemplate", "spec", "containers")
+	customCMap := customContainers[0].(map[string]interface{})
+	customCmds, found, _ := unstructured.NestedSlice(customCMap, "command")
+	if !found || len(customCmds) != 2 || customCmds[0] != "python3" || customCmds[1] != "app.py" {
+		t.Errorf("expected ['python3', 'app.py'], got %v", customCmds)
+	}
+	if stdin, ok := customCMap["stdin"].(bool); !ok || !stdin {
+		t.Errorf("expected stdin=true when specified, got %v", customCMap["stdin"])
+	}
+	if tty, ok := customCMap["tty"].(bool); !ok || !tty {
+		t.Errorf("expected tty=true when specified, got %v", customCMap["tty"])
 	}
 }
 

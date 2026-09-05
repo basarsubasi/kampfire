@@ -1442,4 +1442,116 @@ func TestE2E_Exec_ExitCodeAndStreams(t *testing.T) {
 	}
 }
 
+// TestE2E_UTF8LocaleAndSpecialCharacters verifies that sandboxes support UTF-8 characters (e.g. ö, ç, ş, ğ, ü, ı)
+// and have UTF-8 locale environment variables configured by default.
+func TestE2E_UTF8LocaleAndSpecialCharacters(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "utf8-box"
+
+	// 1. Launch sandbox in detached mode
+	out, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d", "--", "sh", "-c", "sleep 3600")
+	if err != nil {
+		t.Fatalf("kampfire run failed: %s (err: %v)", out, err)
+	}
+
+	// 2. Verify container env in Sandbox CR has UTF-8 settings
+	envCheck := exec.Command("kubectl", "get", "sandbox", boxName, "-n", ns, "-o", `jsonpath={.spec.podTemplate.spec.containers[0].env}`)
+	envOut, err := envCheck.CombinedOutput()
+	if err != nil {
+		t.Errorf("failed to get container env from sandbox: %s (err: %v)", string(envOut), err)
+	} else {
+		envStr := string(envOut)
+		if !strings.Contains(envStr, "C.UTF-8") {
+			t.Errorf("expected C.UTF-8 in container spec env, got: %s", envStr)
+		}
+		if !strings.Contains(envStr, "xterm-256color") {
+			t.Errorf("expected xterm-256color in container spec env, got: %s", envStr)
+		}
+	}
+
+	// 3. Verify environment variables inside running container
+	out, err = runKampfire(t, "-n", ns, "exec", boxName, "sh", "-c", "echo LANG=$LANG LC_ALL=$LC_ALL TERM=$TERM")
+	if err != nil {
+		t.Fatalf("failed to query environment variables inside sandbox: %s (err: %v)", out, err)
+	}
+	if !strings.Contains(out, "LANG=C.UTF-8") {
+		t.Errorf("expected LANG=C.UTF-8 inside container, got: %s", out)
+	}
+	if !strings.Contains(out, "LC_ALL=C.UTF-8") {
+		t.Errorf("expected LC_ALL=C.UTF-8 inside container, got: %s", out)
+	}
+
+	// 4. Exec command echoing special characters (ö, ç, ş, ğ, ı, İ, ü, and uppercase Ö, Ç, Ş, Ğ, Ü)
+	utf8Sample := "ö ç ş ğ ı İ ü Ö Ç Ş Ğ Ü"
+	out, err = runKampfire(t, "-n", ns, "exec", boxName, "echo", utf8Sample)
+	if err != nil {
+		t.Fatalf("kampfire exec with UTF-8 characters failed: %s (err: %v)", out, err)
+	}
+	if !strings.Contains(out, utf8Sample) {
+		t.Errorf("expected %q in exec output, got: %s", utf8Sample, out)
+	}
+
+	// 5. Write UTF-8 characters to a file inside the sandbox and read it back
+	_, err = runKampfire(t, "-n", ns, "exec", boxName, "sh", "-c", fmt.Sprintf("echo %q > /tmp/utf8_test.txt", utf8Sample))
+	if err != nil {
+		t.Fatalf("failed to write UTF-8 file inside sandbox: %v", err)
+	}
+	out, err = runKampfire(t, "-n", ns, "exec", boxName, "cat", "/tmp/utf8_test.txt")
+	if err != nil {
+		t.Fatalf("failed to read UTF-8 file inside sandbox: %s (err: %v)", out, err)
+	}
+	if !strings.Contains(out, utf8Sample) {
+		t.Errorf("expected %q in file contents, got: %s", utf8Sample, out)
+	}
+}
+
+// TestE2E_NoCommandDefaultsToImageEntrypoint verifies that when no command is provided,
+// the command field is omitted from the container spec so it defaults to the image's entrypoint/cmd,
+// and is properly set when an explicit command is specified.
+func TestE2E_NoCommandDefaultsToImageEntrypoint(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+
+	// 1. Launch sandbox without command: command field must be omitted from container spec
+	boxDefault := "entrypoint-default-box"
+	out, err := runKampfire(t, "-n", ns, "run", "--name", boxDefault, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to run sandbox without command: %s (err: %v)", out, err)
+	}
+
+	cmdCheck := exec.Command("kubectl", "get", "sandbox", boxDefault, "-n", ns, "-o", `jsonpath={.spec.podTemplate.spec.containers[0].command}`)
+	cmdOut, err := cmdCheck.CombinedOutput()
+	if err != nil {
+		t.Errorf("failed to get container command: %s (err: %v)", string(cmdOut), err)
+	} else if len(strings.TrimSpace(string(cmdOut))) > 0 {
+		t.Errorf("expected container command to be omitted when no command is given, got: %s", string(cmdOut))
+	}
+
+	// Verify stdin and tty are omitted by default
+	stdinCheck := exec.Command("kubectl", "get", "sandbox", boxDefault, "-n", ns, "-o", `jsonpath={.spec.podTemplate.spec.containers[0].stdin}`)
+	stdinOut, _ := stdinCheck.CombinedOutput()
+	if strings.TrimSpace(string(stdinOut)) == "true" {
+		t.Errorf("expected stdin to be omitted by default, got true")
+	}
+
+	// 2. Launch sandbox with explicit command: command field must be populated
+	boxCustom := "entrypoint-custom-box"
+	customCmd := "echo custom-entrypoint; sleep 3600"
+	out, err = runKampfire(t, "-n", ns, "run", "--name", boxCustom, "--image", "alpine", "-d", "--", "sh", "-c", customCmd)
+	if err != nil {
+		t.Fatalf("failed to run sandbox with custom command: %s (err: %v)", out, err)
+	}
+
+	customCmdCheck := exec.Command("kubectl", "get", "sandbox", boxCustom, "-n", ns, "-o", `jsonpath={.spec.podTemplate.spec.containers[0].command}`)
+	customCmdOut, err := customCmdCheck.CombinedOutput()
+	if err != nil {
+		t.Errorf("failed to get custom container command: %s (err: %v)", string(customCmdOut), err)
+	} else if !strings.Contains(string(customCmdOut), "custom-entrypoint") {
+		t.Errorf("expected custom command in container spec, got: %s", string(customCmdOut))
+	}
+}
+
+
+
 

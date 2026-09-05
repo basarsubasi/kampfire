@@ -115,6 +115,8 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 			Name:           name,
 			Image:          runImage,
 			Command:        command,
+			Stdin:          runInteractive,
+			TTY:            runTTY,
 			CPU:            runCPU,
 			Memory:         runMemory,
 			PublishedPorts: formattedPorts,
@@ -219,12 +221,7 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 				}
 			}()
 
-			shellCmd := command
-			if len(shellCmd) == 0 {
-				shellCmd = []string{"/bin/sh"}
-			}
-
-			err = terminal.RunInteractiveSession(ctx, client, info.Name, shellCmd)
+			err = terminal.RunInteractiveSession(ctx, client, info.Name, command)
 			if err != nil {
 				return err
 			}

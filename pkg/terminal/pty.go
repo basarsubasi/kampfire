@@ -88,12 +88,38 @@ type ExecOptions struct {
 	Interactive   bool
 }
 
+// BuildInteractiveCommand wraps a command with UTF-8 locale and terminal environment configuration.
+func BuildInteractiveCommand(command []string) []string {
+	termVal := os.Getenv("TERM")
+	if termVal == "" {
+		termVal = "xterm-256color"
+	}
+
+	// If no command is provided, try bash first, then fallback to sh
+	if len(command) == 0 {
+		script := fmt.Sprintf(
+			`case "${LC_ALL:-${LANG:-}}" in *UTF-8*|*utf8*|*UTF8*) ;; *) export LANG=C.UTF-8 LC_ALL=C.UTF-8 ;; esac; `+
+				`if [ -z "$TERM" ] || [ "$TERM" = "dumb" ]; then export TERM=%q; fi; `+
+				`if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi`,
+			termVal,
+		)
+		return []string{"/bin/sh", "-c", script}
+	}
+
+	// If command is provided, wrap it to ensure UTF-8 environment and terminal settings
+	script := fmt.Sprintf(
+		`case "${LC_ALL:-${LANG:-}}" in *UTF-8*|*utf8*|*UTF8*) ;; *) export LANG=C.UTF-8 LC_ALL=C.UTF-8 ;; esac; `+
+			`if [ -z "$TERM" ] || [ "$TERM" = "dumb" ]; then export TERM=%q; fi; `+
+			`exec "$@"`,
+		termVal,
+	)
+	cmd := []string{"/bin/sh", "-c", script, "--"}
+	return append(cmd, command...)
+}
+
 // RunInteractiveSession connects an interactive PTY session with raw terminal mode and dynamic resizing.
 func RunInteractiveSession(ctx context.Context, client *k8s.Client, podName string, command []string) error {
-	if len(command) == 0 {
-		// Automatically check or fallback: bash -> sh
-		command = []string{"/bin/sh"}
-	}
+	execCmd := BuildInteractiveCommand(command)
 
 	// Check if stdin is a terminal
 	isTerminal := term.IsTerminal(int(os.Stdin.Fd()))
@@ -120,7 +146,7 @@ func RunInteractiveSession(ctx context.Context, client *k8s.Client, podName stri
 		Namespace(client.Namespace).
 		SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
-			Command: command,
+			Command: execCmd,
 			Stdin:   true,
 			Stdout:  true,
 			Stderr:  true,

@@ -44,9 +44,6 @@ If no command is specified when using -it, defaults to an interactive /bin/sh se
 		}
 
 		if execInteractive || execTTY {
-			if len(command) == 0 {
-				command = []string{"/bin/sh"}
-			}
 			return terminal.RunInteractiveSession(ctx, client, sandboxName, command)
 		}
 
