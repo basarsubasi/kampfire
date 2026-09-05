@@ -118,6 +118,14 @@ fi
 ADMIN_KUBECONFIG="${ADMIN_KUBECONFIG/#\~/$HOME}"
 OUTPUT_FILE="${OUTPUT_FILE/#\~/$HOME}"
 
+# Convert relative paths / filenames to absolute paths based on pwd
+if [[ "$ADMIN_KUBECONFIG" != /* ]]; then
+    ADMIN_KUBECONFIG="$(pwd)/${ADMIN_KUBECONFIG#./}"
+fi
+if [[ "$OUTPUT_FILE" != /* ]]; then
+    OUTPUT_FILE="$(pwd)/${OUTPUT_FILE#./}"
+fi
+
 # Validate admin kubeconfig exists
 if [[ ! -f "$ADMIN_KUBECONFIG" ]]; then
     echo "❌ Error: Admin kubeconfig file not found at: $ADMIN_KUBECONFIG" >&2

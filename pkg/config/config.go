@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -80,6 +81,18 @@ func NewClientConfigLoadingRules(cfg *Config) *clientcmd.ClientConfigLoadingRule
 		kubeconfig = cfg.KubeconfigPath
 	}
 	if kubeconfig != "" {
+		if strings.HasPrefix(kubeconfig, "~/") || kubeconfig == "~" {
+			if home, err := os.UserHomeDir(); err == nil {
+				if kubeconfig == "~" {
+					kubeconfig = home
+				} else {
+					kubeconfig = filepath.Join(home, kubeconfig[2:])
+				}
+			}
+		}
+		if abs, err := filepath.Abs(kubeconfig); err == nil {
+			kubeconfig = abs
+		}
 		loadingRules.ExplicitPath = kubeconfig
 	}
 	return loadingRules

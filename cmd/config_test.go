@@ -53,6 +53,32 @@ func TestConfigSetKubeconfigFlag(t *testing.T) {
 	}
 }
 
+func TestConfigSetKubeconfigRelativePath(t *testing.T) {
+	tempDir := t.TempDir()
+	tempCfg := filepath.Join(tempDir, "config.json")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get cwd: %v", err)
+	}
+
+	relPath := "kampfire-basar-account.yaml"
+	_, err = executeCommand("config", "set", "--kubeconfig", relPath, "--config", tempCfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	loaded, _, err := config.Load(tempCfg)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	expected := filepath.Join(cwd, relPath)
+	if loaded.KubeconfigPath != expected {
+		t.Fatalf("expected absolute path %s, got %s", expected, loaded.KubeconfigPath)
+	}
+}
+
 func TestConfigSetTokenFlag(t *testing.T) {
 	tempDir := t.TempDir()
 	tempCfg := filepath.Join(tempDir, "config.json")

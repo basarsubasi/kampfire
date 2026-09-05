@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/basarsubasi/kampfire/pkg/config"
@@ -101,7 +102,25 @@ var configSetCmd = &cobra.Command{
 			updated = true
 		}
 		if cmd.Flags().Changed("kubeconfig") {
-			cfg.KubeconfigPath = strings.TrimSpace(setKubeconfig)
+			val := strings.TrimSpace(setKubeconfig)
+			if val != "" {
+				if strings.HasPrefix(val, "~/") || val == "~" {
+					if home, err := os.UserHomeDir(); err == nil {
+						if val == "~" {
+							val = home
+						} else {
+							val = filepath.Join(home, val[2:])
+						}
+					}
+				}
+				absPath, err := filepath.Abs(val)
+				if err != nil {
+					return fmt.Errorf("failed to resolve absolute path for %s: %w", val, err)
+				}
+				cfg.KubeconfigPath = absPath
+			} else {
+				cfg.KubeconfigPath = ""
+			}
 			updated = true
 		}
 
