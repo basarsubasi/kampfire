@@ -376,6 +376,51 @@ func TestE2E_Copy(t *testing.T) {
 	if string(readBack) != testData {
 		t.Errorf("content mismatch: expected %q, got %q", testData, string(readBack))
 	}
+
+	// 5. Copy file to container root directory: boxName:/ (verifies archive/tar trailing slash fix)
+	markerData := "root-marker-payload-67890"
+	markerFile := filepath.Join(t.TempDir(), "marker.txt")
+	if err := os.WriteFile(markerFile, []byte(markerData), 0644); err != nil {
+		t.Fatalf("failed to write marker file: %v", err)
+	}
+
+	rootDest := fmt.Sprintf("%s:/", boxName)
+	out, err = runKampfire(t, "-n", ns, "cp", markerFile, rootDest)
+	if err != nil {
+		t.Fatalf("campfire cp to root / failed: %s (err: %v)", out, err)
+	}
+
+	// Verify marker.txt exists at /marker.txt inside container
+	out, err = runKampfire(t, "-n", ns, "exec", boxName, "cat", "/marker.txt")
+	if err != nil || !strings.Contains(out, markerData) {
+		t.Fatalf("content at /marker.txt inside sandbox did not match: %s (err: %v)", out, err)
+	}
+
+	// 6. Copy file to container directory with trailing slash: boxName:/tmp/
+	slashDest := fmt.Sprintf("%s:/tmp/", boxName)
+	out, err = runKampfire(t, "-n", ns, "cp", markerFile, slashDest)
+	if err != nil {
+		t.Fatalf("campfire cp to /tmp/ failed: %s (err: %v)", out, err)
+	}
+	out, err = runKampfire(t, "-n", ns, "exec", boxName, "cat", "/tmp/marker.txt")
+	if err != nil || !strings.Contains(out, markerData) {
+		t.Fatalf("content at /tmp/marker.txt inside sandbox did not match: %s (err: %v)", out, err)
+	}
+
+	// 7. Copy file to existing directory without trailing slash: boxName:/tmp
+	noSlashDest := fmt.Sprintf("%s:/tmp", boxName)
+	marker2 := filepath.Join(t.TempDir(), "marker2.txt")
+	if err := os.WriteFile(marker2, []byte(markerData), 0644); err != nil {
+		t.Fatalf("failed to write marker2 file: %v", err)
+	}
+	out, err = runKampfire(t, "-n", ns, "cp", marker2, noSlashDest)
+	if err != nil {
+		t.Fatalf("campfire cp to /tmp (no trailing slash) failed: %s (err: %v)", out, err)
+	}
+	out, err = runKampfire(t, "-n", ns, "exec", boxName, "cat", "/tmp/marker2.txt")
+	if err != nil || !strings.Contains(out, markerData) {
+		t.Fatalf("content at /tmp/marker2.txt inside sandbox did not match: %s (err: %v)", out, err)
+	}
 }
 
 // TestE2E_Remove tests sandbox deletion and confirmation in ps.
