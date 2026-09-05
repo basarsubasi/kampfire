@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/basarsubasi/kampfire/pkg/ui"
 
 	"github.com/spf13/cobra"
+	executil "k8s.io/client-go/util/exec"
 )
 
 var (
@@ -23,7 +25,7 @@ var (
 // RootCmd is the base command for campfire.
 var RootCmd = &cobra.Command{
 	Use:   "kampfire",
-	Short: "🔥 kampfire - Docker-style CLI for Kubernetes Agent Sandboxes",
+	Short: "kampfire - Docker-style CLI for Kubernetes Agent Sandboxes",
 	Long: `kampfire is a developer-first CLI adhering to Docker conventions on top of
 Kubernetes SIG Agent Sandbox (agents.x-k8s.io).
 
@@ -68,6 +70,10 @@ func GetClient() (*k8s.Client, *config.Config, error) {
 func Execute() {
 	if err := RootCmd.Execute(); err != nil {
 		ui.Error("%s", err)
+		var exitErr executil.ExitError
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.ExitStatus())
+		}
 		os.Exit(1)
 	}
 }
