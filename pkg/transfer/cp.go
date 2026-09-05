@@ -55,12 +55,7 @@ func copyToSandbox(ctx context.Context, client *k8s.Client, localPath, podName, 
 		return fmt.Errorf("local path %s not found: %w", localPath, err)
 	}
 
-	destDir := remotePath
-	destFileName := ""
-	if !info.IsDir() {
-		destDir = filepath.Dir(remotePath)
-		destFileName = filepath.Base(remotePath)
-	}
+	destDir, destFileName := resolveDestDirAndName(ctx, client, podName, remotePath, info.IsDir(), info.Name())
 
 	// Make destination directory inside container
 	mkdirCmd := []string{"mkdir", "-p", destDir}
@@ -80,7 +75,7 @@ func copyToSandbox(ctx context.Context, client *k8s.Client, localPath, podName, 
 		return err
 	}
 	if err := exec.StreamWithContext(ctx, remotecommand.StreamOptions{
-		Stdout: os.Stdout,
+		Stdout: io.Discard,
 		Stderr: os.Stderr,
 	}); err != nil {
 		return fmt.Errorf("failed to create remote directory %s: %w", destDir, err)
@@ -102,7 +97,7 @@ func copyToSandbox(ctx context.Context, client *k8s.Client, localPath, podName, 
 			defer file.Close()
 
 			tarName := info.Name()
-			if destFileName != "" {
+			if destFileName != "" && destFileName != "/" && destFileName != "." {
 				tarName = destFileName
 			}
 
@@ -111,7 +106,10 @@ func copyToSandbox(ctx context.Context, client *k8s.Client, localPath, podName, 
 				_ = pw.CloseWithError(err)
 				return
 			}
-			hdr.Name = tarName
+			hdr.Name = strings.TrimSuffix(tarName, "/")
+			if hdr.Name == "" || hdr.Name == "." {
+				hdr.Name = info.Name()
+			}
 
 			if err := tw.WriteHeader(hdr); err != nil {
 				_ = pw.CloseWithError(err)
@@ -186,6 +184,10 @@ func copyToSandbox(ctx context.Context, client *k8s.Client, localPath, podName, 
 func copyFromSandbox(ctx context.Context, client *k8s.Client, podName, remotePath, localPath string) error {
 	remoteDir := filepath.Dir(remotePath)
 	remoteBase := filepath.Base(remotePath)
+	if remotePath == "/" || remotePath == "." || strings.HasSuffix(remotePath, "/") {
+		remoteDir = filepath.Clean(remotePath)
+		remoteBase = "."
+	}
 
 	tarCmd := []string{"tar", "-cf", "-", "-C", remoteDir, remoteBase}
 	req := client.Clientset.CoreV1().RESTClient().Post().
@@ -338,3 +340,60 @@ func InjectSSHKeys(ctx context.Context, client *k8s.Client, podName string) erro
 
 	return nil
 }
+
+// resolveDestDirAndName determines the target directory and tar entry filename
+// when copying a file or directory into a sandbox.
+func resolveDestDirAndName(ctx context.Context, client *k8s.Client, podName, remotePath string, isSrcDir bool, srcFileName string) (string, string) {
+	clean := filepath.Clean(remotePath)
+	if isSrcDir {
+		return clean, ""
+	}
+
+	// If remotePath is "/" or "." or ends with "/", it explicitly represents a directory destination
+	if clean == "/" || clean == "." || strings.HasSuffix(remotePath, "/") {
+		return clean, srcFileName
+	}
+
+	// If the remote path is an existing directory inside the container
+	if remotePathIsDir(ctx, client, podName, remotePath) {
+		return clean, srcFileName
+	}
+
+	// Otherwise it represents a specific target file path (destination directory + destination filename)
+	dir := filepath.Dir(remotePath)
+	base := filepath.Base(remotePath)
+	if base == "/" || base == "." || base == "" {
+		base = srcFileName
+	}
+	return dir, base
+}
+
+// remotePathIsDir checks if the path inside the container is an existing directory.
+func remotePathIsDir(ctx context.Context, client *k8s.Client, podName, remotePath string) bool {
+	if client == nil || client.Clientset == nil {
+		return false
+	}
+
+	req := client.Clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(client.Namespace).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Command: []string{"test", "-d", remotePath},
+			Stdout:  true,
+			Stderr:  true,
+		}, scheme.ParameterCodec)
+
+	exec, err := client.NewExecutor("POST", req.URL())
+	if err != nil {
+		return false
+	}
+
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
+	return err == nil
+}
+

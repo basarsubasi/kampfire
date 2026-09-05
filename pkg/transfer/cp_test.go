@@ -78,3 +78,70 @@ func TestLocalDirectoryDetection(t *testing.T) {
 		t.Fatalf("expected tempDir to be a directory")
 	}
 }
+
+func TestResolveDestDirAndName(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name         string
+		remotePath   string
+		isSrcDir     bool
+		srcFileName  string
+		wantDestDir  string
+		wantFileName string
+	}{
+		{
+			name:         "copying to root /",
+			remotePath:   "/",
+			isSrcDir:     false,
+			srcFileName:  "marker.txt",
+			wantDestDir:  "/",
+			wantFileName: "marker.txt",
+		},
+		{
+			name:         "copying to directory with trailing slash",
+			remotePath:   "/tmp/",
+			isSrcDir:     false,
+			srcFileName:  "marker.txt",
+			wantDestDir:  "/tmp",
+			wantFileName: "marker.txt",
+		},
+		{
+			name:         "copying to current dir .",
+			remotePath:   ".",
+			isSrcDir:     false,
+			srcFileName:  "marker.txt",
+			wantDestDir:  ".",
+			wantFileName: "marker.txt",
+		},
+		{
+			name:         "copying to specific file path",
+			remotePath:   "/etc/custom.conf",
+			isSrcDir:     false,
+			srcFileName:  "marker.txt",
+			wantDestDir:  "/etc",
+			wantFileName: "custom.conf",
+		},
+		{
+			name:         "copying directory",
+			remotePath:   "/workspace",
+			isSrcDir:     true,
+			srcFileName:  "my-dir",
+			wantDestDir:  "/workspace",
+			wantFileName: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotDir, gotFile := resolveDestDirAndName(ctx, nil, "pod", tt.remotePath, tt.isSrcDir, tt.srcFileName)
+			if gotDir != tt.wantDestDir {
+				t.Errorf("got destDir %q, want %q", gotDir, tt.wantDestDir)
+			}
+			if gotFile != tt.wantFileName {
+				t.Errorf("got destFileName %q, want %q", gotFile, tt.wantFileName)
+			}
+		})
+	}
+}
+
