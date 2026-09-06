@@ -35,6 +35,7 @@ var (
 	runPersistSize        string
 	runWithPullSecret     string
 	runNoKeepAlive        bool
+	runTimeout            string
 )
 
 var runCmd = &cobra.Command{
@@ -51,7 +52,23 @@ When run with -it, automatically drops into an interactive shell as soon as the 
   # Launch an ephemeral sandbox that is deleted on exit
   kampfire run --image alpine --rm -it`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := context.Background()
+		timeout := 5 * time.Minute
+		if envVal := os.Getenv("KAMPFIRE_TIMEOUT"); envVal != "" {
+			if d, err := time.ParseDuration(envVal); err == nil && d > 0 {
+				timeout = d
+			}
+		}
+		if cmd.Flags().Changed("timeout") {
+			d, err := time.ParseDuration(runTimeout)
+			if err != nil {
+				return fmt.Errorf("invalid timeout format %q: use e.g. 5m, 10m, 300s", runTimeout)
+			}
+			timeout = d
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
 		client, _, err := GetClient()
 		if err != nil {
 			return err
@@ -304,6 +321,7 @@ func init() {
 	runCmd.Flags().StringVar(&runPersistSize, "persist-size", "5Gi", "Size of persistent storage volume (e.g. 5Gi, 10Gi)")
 	runCmd.Flags().StringVar(&runWithPullSecret, "with-pull-secret", "", "Kubernetes secret name for pulling private container images")
 	runCmd.Flags().BoolVar(&runNoKeepAlive, "no-keepalive", false, "Do not inject default keep-alive process; use image entrypoint/cmd directly")
+	runCmd.Flags().StringVar(&runTimeout, "timeout", "5m", "Maximum duration to wait for sandbox to become ready (e.g. 5m, 10m, 300s)")
 
 	RootCmd.AddCommand(runCmd)
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -277,8 +279,14 @@ type StatusUpdate struct {
 // WaitReady polls until the sandbox pod is Ready, encounters a fatal container crash, or the timeout expires.
 func WaitReady(ctx context.Context, client *k8s.Client, name string, onStatus func(StatusUpdate)) (*Info, error) {
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		timeout := 5 * time.Minute
+		if envVal := os.Getenv("KAMPFIRE_TIMEOUT"); envVal != "" {
+			if d, err := time.ParseDuration(envVal); err == nil && d > 0 {
+				timeout = d
+			}
+		}
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 120*time.Second)
+		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
 
@@ -286,9 +294,17 @@ func WaitReady(ctx context.Context, client *k8s.Client, name string, onStatus fu
 	ticker := time.NewTicker(400 * time.Millisecond)
 	defer ticker.Stop()
 
+	var lastStatusText string
 	for {
 		select {
 		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				msg := fmt.Sprintf("timed out after %v waiting for sandbox %q to become ready", time.Since(start).Round(time.Second), name)
+				if lastStatusText != "" {
+					msg += fmt.Sprintf(" (last status: %s)", lastStatusText)
+				}
+				return nil, fmt.Errorf("%s\n  Use --timeout or KAMPFIRE_TIMEOUT to increase wait time", msg)
+			}
 			return nil, ctx.Err()
 		case <-ticker.C:
 			statusText := "Waiting for container to start..."
@@ -318,6 +334,7 @@ func WaitReady(ctx context.Context, client *k8s.Client, name string, onStatus fu
 					}
 				}
 			}
+			lastStatusText = statusText
 
 			// 2. Check underlying Pod status for container crash loops or premature exits
 			if pod, err := client.Clientset.CoreV1().Pods(client.Namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {

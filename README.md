@@ -46,6 +46,7 @@ kampfire config set --token "<your-token>"
 # Option B: Use environment variables (takes precedence over saved config)
 export KAMPFIRE_KUBECONFIG=~/kampfire-user.yaml
 export KAMPFIRE_API_TOKEN="<your-token>"
+export KAMPFIRE_TIMEOUT="5m"                # Sandbox readiness timeout (default: 5m)
 ```
 
 
@@ -83,6 +84,12 @@ kampfire run --image alpine -it /bin/sh
 # Detached with resource limits, published port, and persistent storage
 kampfire run --name my-agent --image python:3.12 \
   --cpu 500m --memory 1Gi -p 8080:80 --persist /workspace -d
+
+# Use image's native ENTRYPOINT/CMD directly without default keep-alive
+kampfire run --image my-daemon:latest --no-keepalive -d
+
+# Custom readiness timeout for large image pulls or slow networks (default: 5m)
+kampfire run --image python:3.12 --timeout 10m -d
 
 # Inject SSH keys and clone a private repo on startup
 kampfire run --image alpine/git --with-private-ssh-keys \

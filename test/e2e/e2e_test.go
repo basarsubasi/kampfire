@@ -1507,7 +1507,8 @@ func TestE2E_UTF8LocaleAndSpecialCharacters(t *testing.T) {
 }
 
 // TestE2E_NoKeepAliveFlag verifies that without --no-keepalive, sandboxes default to tail -f /dev/null,
-// and with --no-keepalive, the command field is omitted from the container spec so the image entrypoint/cmd is used.
+// and with --no-keepalive, the command field is omitted from the container spec so the image entrypoint/cmd is used,
+// while explicit commands are properly honored.
 func TestE2E_NoKeepAliveFlag(t *testing.T) {
 	t.Parallel()
 	ns := setupNamespace(t)
@@ -1525,7 +1526,7 @@ func TestE2E_NoKeepAliveFlag(t *testing.T) {
 		t.Errorf("expected default sandbox to have tail keep-alive command in spec, got: %s (err: %v)", string(cmdOut), err)
 	}
 
-	// 2. Launch with --no-keepalive: command must be omitted from container spec
+	// 2. Launch with --no-keepalive without command: command must be omitted from container spec
 	boxNKA := "no-keepalive-box"
 	out, err = runKampfire(t, "-n", ns, "run", "--name", boxNKA, "--image", "alpine", "--no-keepalive", "-d")
 
@@ -1542,5 +1543,81 @@ func TestE2E_NoKeepAliveFlag(t *testing.T) {
 	} else if !strings.Contains(out, "CrashLoopBackOff") && !strings.Contains(out, "container failed to start") {
 		t.Errorf("expected alpine without keep-alive to encounter CrashLoopBackOff, got: %s", out)
 	}
+
+	// 3. Launch with --no-keepalive AND explicit command: explicit command must be set and honored
+	boxCustom := "nka-custom-box"
+	out, err = runKampfire(t, "-n", ns, "run", "--name", boxCustom, "--image", "alpine", "--no-keepalive", "-d", "--", "sh", "-c", "echo custom-nka-ok; sleep 3600")
+	if err != nil {
+		t.Fatalf("expected sandbox with --no-keepalive and explicit command to succeed: %s (err: %v)", out, err)
+	}
+
+	cmdCheckCustom := exec.Command("kubectl", "get", "sandbox", boxCustom, "-n", ns, "-o", `jsonpath={.spec.podTemplate.spec.containers[0].command}`)
+	cmdOutCustom, _ := cmdCheckCustom.CombinedOutput()
+	if !strings.Contains(string(cmdOutCustom), "custom-nka-ok") {
+		t.Errorf("expected explicit command in spec, got: %s", string(cmdOutCustom))
+	}
+
+	execOut, err := runKampfire(t, "-n", ns, "exec", boxCustom, "echo", "verified-nka-exec")
+	if err != nil || !strings.Contains(execOut, "verified-nka-exec") {
+		t.Errorf("expected exec inside nka-custom-box to succeed, got: %s (err: %v)", execOut, err)
+	}
 }
+
+// TestE2E_TimeoutFlagAndEnvVar verifies --timeout flag validation, short timeout expiration,
+// and the KAMPFIRE_TIMEOUT environment variable override.
+func TestE2E_TimeoutFlagAndEnvVar(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+
+	// 1. Invalid --timeout format must fail immediately with clear error
+	out, err := runKampfire(t, "-n", ns, "run", "--name", "invalid-timeout-box", "--image", "alpine", "--timeout", "invalid_val", "-d")
+	if err == nil {
+		t.Fatalf("expected run with invalid timeout to fail, but succeeded: %s", out)
+	}
+	if !strings.Contains(out, "invalid timeout format") {
+		t.Errorf("expected output to mention 'invalid timeout format', got:\n%s", out)
+	}
+
+	// 2. Extremely short --timeout (e.g. 100ms) should fail due to deadline exceeded before readiness
+	out, err = runKampfire(t, "-n", ns, "run", "--name", "short-timeout-box", "--image", "alpine", "--timeout", "100ms", "-d")
+	if err == nil {
+		t.Fatalf("expected run with 100ms timeout to fail due to timeout, but succeeded: %s", out)
+	}
+	if !strings.Contains(out, "timed out after") && !strings.Contains(out, "deadline exceeded") && !strings.Contains(out, "context deadline") {
+		t.Errorf("expected output to mention timeout / deadline exceeded, got:\n%s", out)
+	}
+
+	// 3. KAMPFIRE_TIMEOUT environment variable should be honored
+	envOverride := []string{"KAMPFIRE_TIMEOUT=100ms"}
+	out, err = runKampfireWithEnv(t, envOverride, "-n", ns, "run", "--name", "env-timeout-box", "--image", "alpine", "-d")
+	if err == nil {
+		t.Fatalf("expected run with KAMPFIRE_TIMEOUT=100ms to fail due to timeout, but succeeded: %s", out)
+	}
+	if !strings.Contains(out, "timed out after") && !strings.Contains(out, "deadline exceeded") && !strings.Contains(out, "context deadline") {
+		t.Errorf("expected output to mention timeout / deadline exceeded from env, got:\n%s", out)
+	}
+
+	// 4. Sufficient timeout (--timeout 5m) must succeed cleanly
+	boxOK := "timeout-ok-box"
+	out, err = runKampfire(t, "-n", ns, "run", "--name", boxOK, "--image", "alpine", "--timeout", "5m", "-d")
+	if err != nil {
+		t.Fatalf("expected run with --timeout 5m to succeed: %s (err: %v)", out, err)
+	}
+	psOut, err := runKampfire(t, "-n", ns, "ps")
+	if err != nil || !strings.Contains(psOut, boxOK) {
+		t.Errorf("expected ps to list %s, got: %s", boxOK, psOut)
+	}
+
+	// 5. Explicit --timeout flag takes precedence over KAMPFIRE_TIMEOUT env var
+	boxPrecedence := "timeout-override-box"
+	out, err = runKampfireWithEnv(t, []string{"KAMPFIRE_TIMEOUT=100ms"}, "-n", ns, "run", "--name", boxPrecedence, "--image", "alpine", "--timeout", "5m", "-d")
+	if err != nil {
+		t.Fatalf("expected --timeout 5m to take precedence over KAMPFIRE_TIMEOUT=100ms: %s (err: %v)", out, err)
+	}
+	psOut, err = runKampfire(t, "-n", ns, "ps")
+	if err != nil || !strings.Contains(psOut, boxPrecedence) {
+		t.Errorf("expected ps to list %s, got: %s", boxPrecedence, psOut)
+	}
+}
+
 

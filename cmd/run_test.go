@@ -5,7 +5,7 @@ import (
 )
 
 func TestRunFlagsRegistration(t *testing.T) {
-	flags := []string{"cpu", "memory", "publish", "persist", "persist-size", "with-pull-secret", "no-keepalive"}
+	flags := []string{"cpu", "memory", "publish", "persist", "persist-size", "with-pull-secret", "no-keepalive", "timeout"}
 	for _, f := range flags {
 		if runCmd.Flags().Lookup(f) == nil {
 			t.Errorf("expected flag --%s to be registered on runCmd", f)
@@ -25,8 +25,9 @@ func TestRunFlagsParsing(t *testing.T) {
 	runPersistSize = ""
 	runWithPullSecret = ""
 	runNoKeepAlive = false
+	runTimeout = "5m"
 
-	args := []string{"--cpu", "500m", "--memory", "1Gi", "-p", "8080:80", "-p", "3000", "--persist", "/data", "--persist-size", "10Gi", "--with-pull-secret", "ghcr-creds", "--no-keepalive"}
+	args := []string{"--cpu", "500m", "--memory", "1Gi", "-p", "8080:80", "-p", "3000", "--persist", "/data", "--persist-size", "10Gi", "--with-pull-secret", "ghcr-creds", "--no-keepalive", "--timeout", "10m"}
 	err := runCmd.ParseFlags(args)
 	if err != nil {
 		t.Fatalf("unexpected parse error: %v", err)
@@ -55,6 +56,9 @@ func TestRunFlagsParsing(t *testing.T) {
 	}
 	if !runNoKeepAlive {
 		t.Errorf("expected runNoKeepAlive = true, got %v", runNoKeepAlive)
+	}
+	if runTimeout != "10m" {
+		t.Errorf("expected runTimeout = 10m, got %s", runTimeout)
 	}
 }
 
@@ -104,6 +108,21 @@ func TestRunFlagsNoKeepAlive(t *testing.T) {
 
 	if !runNoKeepAlive {
 		t.Errorf("expected runNoKeepAlive = true, got %v", runNoKeepAlive)
+	}
+}
+
+func TestRunFlagsTimeout(t *testing.T) {
+	resetFlags(RootCmd)
+	runTimeout = "5m"
+
+	args := []string{"--timeout", "15m"}
+	err := runCmd.ParseFlags(args)
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+
+	if runTimeout != "15m" {
+		t.Errorf("expected runTimeout = 15m, got %s", runTimeout)
 	}
 }
 
