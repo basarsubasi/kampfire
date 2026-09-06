@@ -5,7 +5,7 @@ A developer-first, Docker-style CLI for Kubernetes Agent Sandboxes.
 
 Before using `kampfire`, you will need:
 - **Kubernetes Cluster** with [Kubernetes Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox) installed.
-  - To set up a complete cluster automatically with Ansible (Kata Containers, Firecracker, Cilium CNI, and Agent Sandbox), refer to **[kata-fc-cilium](https://github.com/basarsubasi/kata-fc-cilium)**.
+  - To set up a complete cluster automatically with Ansible (Kata Containers, Firecracker, Cilium CNI, and Agent Sandbox), refer to **[agent-sandbox-playbook](https://github.com/basarsubasi/agent-sandbox-playbook)**.
 - **Cluster Access**: A kubeconfig pointing to your cluster and namespace (with a valid token or credentials).
   - To quickly provision a new tenant user (namespace, ServiceAccount, RBAC, token, and scoped kubeconfig), run [`scripts/provision-user.sh`](scripts/provision-user.sh):
     ```bash
