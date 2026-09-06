@@ -5,14 +5,12 @@ A developer-first, Docker-style CLI for Kubernetes Agent Sandboxes.
 
 Before using `kampfire`, you will need:
 - **Kubernetes Cluster** with [Kubernetes Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox) installed.
+  - To set up a complete cluster automatically with Ansible (Kata Containers, Firecracker, Cilium CNI, and Agent Sandbox), refer to **[kata-fc-cilium](https://github.com/basarsubasi/kata-fc-cilium)**.
 - **Cluster Access**: A kubeconfig pointing to your cluster and namespace (with a valid token or credentials).
-
-> **Tip:** To set everything up automatically with Ansible (Kata Containers, Firecracker, Cilium CNI, and Agent Sandbox), refer to **[kata-fc-cilium](https://github.com/basarsubasi/kata-fc-cilium)**.
-
-> **Info:** To quickly provision a new tenant user (namespace, ServiceAccount, RBAC, token, and tight kubeconfig), run [`scripts/provision-user.sh`](scripts/provision-user.sh):
-> ```bash
-> ./scripts/provision-user.sh <admin-kubeconfig> <username> <namespace>
-> ```
+  - To quickly provision a new tenant user (namespace, ServiceAccount, RBAC, token, and scoped kubeconfig), run [`scripts/provision-user.sh`](scripts/provision-user.sh):
+    ```bash
+    ./scripts/provision-user.sh <admin-kubeconfig> <username> <namespace>
+    ```
 
 ## Quick Start
 
@@ -20,14 +18,14 @@ Before using `kampfire`, you will need:
 
 #### macOS (arm64)
 ```bash
-curl -Lo kampfire https://github.com/basarsubasi/kampfire/releases/download/1.2.1/kampfire-1.2.1-darwin-arm64
+curl -Lo kampfire https://github.com/basarsubasi/kampfire/releases/download/1.3.0/kampfire-1.3.0-darwin-arm64
 chmod +x kampfire
 sudo mv kampfire /usr/local/bin/kampfire
 ```
 
 #### Linux (amd64)
 ```bash
-curl -Lo kampfire https://github.com/basarsubasi/kampfire/releases/download/1.2.1/kampfire-1.2.1-linux-amd64
+curl -Lo kampfire https://github.com/basarsubasi/kampfire/releases/download/1.3.0/kampfire-1.3.0-linux-amd64
 chmod +x kampfire
 sudo mv kampfire /usr/local/bin/kampfire
 ```
