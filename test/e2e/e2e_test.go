@@ -1544,22 +1544,20 @@ func TestE2E_NoKeepAliveFlag(t *testing.T) {
 		t.Errorf("expected alpine without keep-alive to encounter CrashLoopBackOff, got: %s", out)
 	}
 
-	// 3. Launch with --no-keepalive AND explicit command: explicit command must be set and honored
+	// 3. Launch with --no-keepalive AND trailing arguments: arguments populate container args, preserving image entrypoint
 	boxCustom := "nka-custom-box"
-	out, err = runKampfire(t, "-n", ns, "run", "--name", boxCustom, "--image", "alpine", "--no-keepalive", "-d", "--", "sh", "-c", "echo custom-nka-ok; sleep 3600")
-	if err != nil {
-		t.Fatalf("expected sandbox with --no-keepalive and explicit command to succeed: %s (err: %v)", out, err)
-	}
+	out, err = runKampfire(t, "-n", ns, "run", "--name", boxCustom, "--image", "alpine", "--no-keepalive", "-d", "--", "https://example.com")
 
 	cmdCheckCustom := exec.Command("kubectl", "get", "sandbox", boxCustom, "-n", ns, "-o", `jsonpath={.spec.podTemplate.spec.containers[0].command}`)
 	cmdOutCustom, _ := cmdCheckCustom.CombinedOutput()
-	if !strings.Contains(string(cmdOutCustom), "custom-nka-ok") {
-		t.Errorf("expected explicit command in spec, got: %s", string(cmdOutCustom))
+	if len(strings.TrimSpace(string(cmdOutCustom))) > 0 {
+		t.Errorf("expected command to be omitted with --no-keepalive, got: %s", string(cmdOutCustom))
 	}
 
-	execOut, err := runKampfire(t, "-n", ns, "exec", boxCustom, "echo", "verified-nka-exec")
-	if err != nil || !strings.Contains(execOut, "verified-nka-exec") {
-		t.Errorf("expected exec inside nka-custom-box to succeed, got: %s (err: %v)", execOut, err)
+	argsCheckCustom := exec.Command("kubectl", "get", "sandbox", boxCustom, "-n", ns, "-o", `jsonpath={.spec.podTemplate.spec.containers[0].args}`)
+	argsOutCustom, _ := argsCheckCustom.CombinedOutput()
+	if !strings.Contains(string(argsOutCustom), "https://example.com") {
+		t.Errorf("expected args to contain 'https://example.com' with --no-keepalive, got: %s", string(argsOutCustom))
 	}
 }
 
@@ -1619,5 +1617,118 @@ func TestE2E_TimeoutFlagAndEnvVar(t *testing.T) {
 		t.Errorf("expected ps to list %s, got: %s", boxPrecedence, psOut)
 	}
 }
+
+// TestE2E_Run_EnvFlags verifies that -e and --env flags inject environment variables
+// into the sandbox container spec and that they are accessible to whatever entrypoint/commands run inside it.
+func TestE2E_Run_EnvFlags(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+
+	// 1. Launch a sandbox with custom env variables, an override of default LANG, and host inheritance
+	boxName := "env-flag-box"
+	hostEnvVal := "inherited-secret-xyz"
+	out, err := runKampfireWithEnv(t, []string{"HOST_SECRET=" + hostEnvVal},
+		"-n", ns, "run",
+		"--name", boxName,
+		"--image", "alpine",
+		"-e", "APP_ENV=production",
+		"--env", "APP_PORT=8080",
+		"-e", "LANG=en_US.UTF-8",
+		"-e", "HOST_SECRET",
+		"-d",
+	)
+	if err != nil {
+		t.Fatalf("expected sandbox with env flags to start: %s (err: %v)", out, err)
+	}
+
+	// 2. Verify environment variables in the Sandbox custom resource spec via kubectl
+	cmdCheck := exec.Command("kubectl", "get", "sandbox", boxName, "-n", ns, "-o", "json")
+	jsonOut, err := cmdCheck.CombinedOutput()
+	if err != nil {
+		t.Fatalf("failed to get sandbox json: %s (err: %v)", string(jsonOut), err)
+	}
+
+	var sbData struct {
+		Spec struct {
+			PodTemplate struct {
+				Spec struct {
+					Containers []struct {
+						Env []struct {
+							Name  string `json:"name"`
+							Value string `json:"value"`
+						} `json:"env"`
+					} `json:"containers"`
+				} `json:"spec"`
+			} `json:"podTemplate"`
+		} `json:"spec"`
+	}
+	if err := json.Unmarshal(jsonOut, &sbData); err != nil {
+		t.Fatalf("failed to unmarshal sandbox json: %v", err)
+	}
+	if len(sbData.Spec.PodTemplate.Spec.Containers) == 0 {
+		t.Fatalf("expected at least one container in sandbox spec")
+	}
+
+	envMap := make(map[string]string)
+	for _, e := range sbData.Spec.PodTemplate.Spec.Containers[0].Env {
+		envMap[e.Name] = e.Value
+	}
+
+	if envMap["APP_ENV"] != "production" {
+		t.Errorf("expected APP_ENV=production, got: %s", envMap["APP_ENV"])
+	}
+	if envMap["APP_PORT"] != "8080" {
+		t.Errorf("expected APP_PORT=8080, got: %s", envMap["APP_PORT"])
+	}
+	if envMap["LANG"] != "en_US.UTF-8" {
+		t.Errorf("expected overridden LANG=en_US.UTF-8, got: %s", envMap["LANG"])
+	}
+	if envMap["LC_ALL"] != "C.UTF-8" {
+		t.Errorf("expected default LC_ALL=C.UTF-8, got: %s", envMap["LC_ALL"])
+	}
+	if envMap["HOST_SECRET"] != hostEnvVal {
+		t.Errorf("expected inherited HOST_SECRET=%s, got: %s", hostEnvVal, envMap["HOST_SECRET"])
+	}
+
+	// 3. Verify environment variables are actually accessible inside the sandbox container
+	execOut, err := runKampfire(t, "-n", ns, "exec", boxName, "sh", "-c", "echo APP_ENV=$APP_ENV; echo APP_PORT=$APP_PORT; echo HOST_SECRET=$HOST_SECRET")
+	if err != nil {
+		t.Fatalf("failed to execute echo inside sandbox: %s (err: %v)", execOut, err)
+	}
+	if !strings.Contains(execOut, "APP_ENV=production") {
+		t.Errorf("expected 'APP_ENV=production' in container output, got: %s", execOut)
+	}
+	if !strings.Contains(execOut, "APP_PORT=8080") {
+		t.Errorf("expected 'APP_PORT=8080' in container output, got: %s", execOut)
+	}
+	if !strings.Contains(execOut, "HOST_SECRET="+hostEnvVal) {
+		t.Errorf("expected 'HOST_SECRET=%s' in container output, got: %s", hostEnvVal, execOut)
+	}
+
+	// 4. Verify --no-keepalive combined with -e / --env: environment variables are appended to native entrypoint
+	boxNKA := "env-nka-box"
+	nkaOut, err := runKampfire(t, "-n", ns, "run",
+		"--name", boxNKA,
+		"--image", "alpine",
+		"--no-keepalive",
+		"-e", "ENTRY_TEST=custom_entry_val",
+		"-d",
+		"--", "sh", "-c", "echo EntrypointVar=$ENTRY_TEST; sleep 10",
+	)
+	if err != nil {
+		t.Fatalf("expected --no-keepalive sandbox with env to start: %s (err: %v)", nkaOut, err)
+	}
+
+	// Wait briefly for container to log
+	time.Sleep(1 * time.Second)
+	logsOut, err := runKampfire(t, "-n", ns, "logs", boxNKA)
+	if err != nil {
+		t.Fatalf("failed to fetch logs for %s: %s (err: %v)", boxNKA, logsOut, err)
+	}
+	if !strings.Contains(logsOut, "EntrypointVar=custom_entry_val") {
+		t.Errorf("expected logs to contain 'EntrypointVar=custom_entry_val', got: %s", logsOut)
+	}
+}
+
 
 

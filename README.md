@@ -85,8 +85,11 @@ kampfire run --image alpine -it /bin/sh
 kampfire run --name my-agent --image python:3.12 \
   --cpu 500m --memory 1Gi -p 8080:80 --persist /workspace -d
 
-# Use image's native ENTRYPOINT/CMD directly without default keep-alive
-kampfire run --image my-daemon:latest --no-keepalive -d
+# Pass arguments directly to image's native ENTRYPOINT without keep-alive override (e.g. curl image)
+kampfire run --image curlimages/curl --no-keepalive -d -- https://example.com
+
+# Pass environment variables (explicit values or inherited from host)
+kampfire run --image python:3.12 -e APP_ENV=production -e SECRET_KEY -d
 
 # Custom readiness timeout for large image pulls or slow networks (default: 5m)
 kampfire run --image python:3.12 --timeout 10m -d

@@ -5,7 +5,7 @@ import (
 )
 
 func TestRunFlagsRegistration(t *testing.T) {
-	flags := []string{"cpu", "memory", "publish", "persist", "persist-size", "with-pull-secret", "no-keepalive", "timeout"}
+	flags := []string{"cpu", "memory", "publish", "persist", "persist-size", "with-pull-secret", "no-keepalive", "timeout", "env"}
 	for _, f := range flags {
 		if runCmd.Flags().Lookup(f) == nil {
 			t.Errorf("expected flag --%s to be registered on runCmd", f)
@@ -13,6 +13,9 @@ func TestRunFlagsRegistration(t *testing.T) {
 	}
 	if runCmd.Flags().ShorthandLookup("p") == nil {
 		t.Errorf("expected shorthand -p to be registered on runCmd")
+	}
+	if runCmd.Flags().ShorthandLookup("e") == nil {
+		t.Errorf("expected shorthand -e to be registered on runCmd")
 	}
 }
 
@@ -26,8 +29,9 @@ func TestRunFlagsParsing(t *testing.T) {
 	runWithPullSecret = ""
 	runNoKeepAlive = false
 	runTimeout = "5m"
+	runEnv = nil
 
-	args := []string{"--cpu", "500m", "--memory", "1Gi", "-p", "8080:80", "-p", "3000", "--persist", "/data", "--persist-size", "10Gi", "--with-pull-secret", "ghcr-creds", "--no-keepalive", "--timeout", "10m"}
+	args := []string{"--cpu", "500m", "--memory", "1Gi", "-p", "8080:80", "-p", "3000", "--persist", "/data", "--persist-size", "10Gi", "--with-pull-secret", "ghcr-creds", "--no-keepalive", "--timeout", "10m", "-e", "FOO=BAR", "--env", "BAZ=QUX"}
 	err := runCmd.ParseFlags(args)
 	if err != nil {
 		t.Fatalf("unexpected parse error: %v", err)
@@ -59,6 +63,9 @@ func TestRunFlagsParsing(t *testing.T) {
 	}
 	if runTimeout != "10m" {
 		t.Errorf("expected runTimeout = 10m, got %s", runTimeout)
+	}
+	if len(runEnv) != 2 || runEnv[0] != "FOO=BAR" || runEnv[1] != "BAZ=QUX" {
+		t.Errorf("expected runEnv to be [FOO=BAR, BAZ=QUX], got %v", runEnv)
 	}
 }
 
@@ -123,6 +130,24 @@ func TestRunFlagsTimeout(t *testing.T) {
 
 	if runTimeout != "15m" {
 		t.Errorf("expected runTimeout = 15m, got %s", runTimeout)
+	}
+}
+
+func TestRunFlagsEnv(t *testing.T) {
+	resetFlags(RootCmd)
+	runEnv = nil
+
+	args := []string{"-e", "VAR1=hello", "--env", "VAR2=world", "-e", "FLAG_ONLY"}
+	err := runCmd.ParseFlags(args)
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+
+	if len(runEnv) != 3 {
+		t.Fatalf("expected 3 env vars, got %d: %v", len(runEnv), runEnv)
+	}
+	if runEnv[0] != "VAR1=hello" || runEnv[1] != "VAR2=world" || runEnv[2] != "FLAG_ONLY" {
+		t.Errorf("expected [VAR1=hello, VAR2=world, FLAG_ONLY], got %v", runEnv)
 	}
 }
 

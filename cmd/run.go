@@ -36,6 +36,7 @@ var (
 	runWithPullSecret     string
 	runNoKeepAlive        bool
 	runTimeout            string
+	runEnv                []string
 )
 
 var runCmd = &cobra.Command{
@@ -142,6 +143,7 @@ When run with -it, automatically drops into an interactive shell as soon as the 
 			PersistSize:    runPersistSize,
 			PullSecret:     runWithPullSecret,
 			NoKeepAlive:    runNoKeepAlive,
+			Env:            runEnv,
 		}
 		info, err := sandbox.CreateWithOptions(ctx, client, opts)
 		if err != nil {
@@ -322,6 +324,7 @@ func init() {
 	runCmd.Flags().StringVar(&runWithPullSecret, "with-pull-secret", "", "Kubernetes secret name for pulling private container images")
 	runCmd.Flags().BoolVar(&runNoKeepAlive, "no-keepalive", false, "Do not inject default keep-alive process; use image entrypoint/cmd directly")
 	runCmd.Flags().StringVar(&runTimeout, "timeout", "5m", "Maximum duration to wait for sandbox to become ready (e.g. 5m, 10m, 300s)")
+	runCmd.Flags().StringArrayVarP(&runEnv, "env", "e", nil, "Set environment variable(s) inside sandbox (e.g. -e KEY=value or -e KEY)")
 
 	RootCmd.AddCommand(runCmd)
 }

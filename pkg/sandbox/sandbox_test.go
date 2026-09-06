@@ -176,6 +176,31 @@ func TestCreateDefaultKeepAliveCommand(t *testing.T) {
 	if _, foundCmd := nkaCMap["command"]; foundCmd {
 		t.Errorf("expected command to be omitted when NoKeepAlive is true, got: %v", nkaCMap["command"])
 	}
+
+	// 4. When NoKeepAlive is true and command/args are provided, command is omitted and args is populated
+	optsNKAArgs := CreateOptions{
+		Name:        "nka-args-box",
+		Image:       "curlimages/curl",
+		NoKeepAlive: true,
+		Command:     []string{"https://example.com"},
+	}
+	infoNKAArgs, err := CreateWithOptions(context.Background(), client, optsNKAArgs)
+	if err != nil {
+		t.Fatalf("CreateWithOptions failed: %v", err)
+	}
+	objNKAArgs, err := dynClient.Resource(SandboxGVR).Namespace("default").Get(context.Background(), infoNKAArgs.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to retrieve nka-args Sandbox: %v", err)
+	}
+	nkaArgsContainers, _, _ := unstructured.NestedSlice(objNKAArgs.Object, "spec", "podTemplate", "spec", "containers")
+	nkaArgsCMap := nkaArgsContainers[0].(map[string]interface{})
+	if _, foundCmd := nkaArgsCMap["command"]; foundCmd {
+		t.Errorf("expected command to be omitted when NoKeepAlive is true with args, got: %v", nkaArgsCMap["command"])
+	}
+	argsSlice, foundArgs, _ := unstructured.NestedSlice(nkaArgsCMap, "args")
+	if !foundArgs || len(argsSlice) != 1 || argsSlice[0] != "https://example.com" {
+		t.Errorf("expected args to be ['https://example.com'], got: %v", argsSlice)
+	}
 }
 
 func TestWaitReadyCrashLoopBackOff(t *testing.T) {
@@ -569,5 +594,72 @@ func TestCreateWithOptions_PullSecret(t *testing.T) {
 		t.Errorf("expected secret 1 name internal-creds, got %v", s1["name"])
 	}
 }
+
+func TestCreateWithOptions_CustomEnv(t *testing.T) {
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClient(scheme)
+	fakeK8s := k8sfake.NewSimpleClientset()
+
+	client := &k8s.Client{
+		Dynamic:   dynClient,
+		Clientset: fakeK8s,
+		Namespace: "default",
+	}
+
+	t.Setenv("MY_HOST_VAR", "host_secret_123")
+
+	opts := CreateOptions{
+		Name:  "env-test-box",
+		Image: "alpine",
+		Env: []string{
+			"CUSTOM_KEY=custom_val",
+			"LANG=en_US.UTF-8", // Override default LANG
+			"MY_HOST_VAR",     // Inherit from host
+		},
+	}
+
+	info, err := CreateWithOptions(context.Background(), client, opts)
+	if err != nil {
+		t.Fatalf("CreateWithOptions() failed: %v", err)
+	}
+
+	obj, err := dynClient.Resource(SandboxGVR).Namespace("default").Get(context.Background(), info.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to retrieve created Sandbox: %v", err)
+	}
+
+	containers, found, err := unstructured.NestedSlice(obj.Object, "spec", "podTemplate", "spec", "containers")
+	if !found || err != nil || len(containers) == 0 {
+		t.Fatalf("containers not found in spec: %v", err)
+	}
+	cMap := containers[0].(map[string]interface{})
+	envs, found, _ := unstructured.NestedSlice(cMap, "env")
+	if !found {
+		t.Fatalf("expected env in container, got none")
+	}
+
+	envMap := make(map[string]string)
+	for _, e := range envs {
+		em := e.(map[string]interface{})
+		envMap[em["name"].(string)] = em["value"].(string)
+	}
+
+	if envMap["CUSTOM_KEY"] != "custom_val" {
+		t.Errorf("expected CUSTOM_KEY=custom_val, got %q", envMap["CUSTOM_KEY"])
+	}
+	if envMap["LANG"] != "en_US.UTF-8" {
+		t.Errorf("expected LANG=en_US.UTF-8 (override), got %q", envMap["LANG"])
+	}
+	if envMap["LC_ALL"] != "C.UTF-8" {
+		t.Errorf("expected default LC_ALL=C.UTF-8, got %q", envMap["LC_ALL"])
+	}
+	if envMap["TERM"] != "xterm-256color" {
+		t.Errorf("expected default TERM=xterm-256color, got %q", envMap["TERM"])
+	}
+	if envMap["MY_HOST_VAR"] != "host_secret_123" {
+		t.Errorf("expected MY_HOST_VAR=host_secret_123, got %q", envMap["MY_HOST_VAR"])
+	}
+}
+
 
 

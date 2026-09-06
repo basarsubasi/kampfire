@@ -63,6 +63,8 @@ type CreateOptions struct {
 	Name           string
 	Image          string
 	Command        []string
+	Args           []string
+	Env            []string
 	NoKeepAlive    bool
 	Stdin          bool
 	TTY            bool
@@ -81,20 +83,70 @@ func CreateWithOptions(ctx context.Context, client *k8s.Client, opts CreateOptio
 		name = GenerateName(opts.Image)
 	}
 
-	command := opts.Command
-	if len(command) == 0 && !opts.NoKeepAlive {
-		// Keep container alive indefinitely across all Linux distributions (Alpine, Debian, Ubuntu)
-		command = []string{"tail", "-f", "/dev/null"}
+	var command []string
+	var args []string
+
+	if opts.NoKeepAlive {
+		// When --no-keepalive is active, preserve image ENTRYPOINT: trailing arguments populate container args
+		args = opts.Command
+		if len(opts.Args) > 0 {
+			args = append(args, opts.Args...)
+		}
+	} else {
+		command = opts.Command
+		if len(command) == 0 {
+			// Keep container alive indefinitely across all Linux distributions (Alpine, Debian, Ubuntu)
+			command = []string{"tail", "-f", "/dev/null"}
+		}
+		args = opts.Args
+	}
+
+	userKeys := make(map[string]bool)
+	for _, e := range opts.Env {
+		parts := strings.SplitN(e, "=", 2)
+		k := strings.TrimSpace(parts[0])
+		if k != "" {
+			userKeys[k] = true
+		}
+	}
+
+	var envList []interface{}
+	defaults := []struct{ name, value string }{
+		{"LANG", "C.UTF-8"},
+		{"LC_ALL", "C.UTF-8"},
+		{"TERM", "xterm-256color"},
+	}
+	for _, d := range defaults {
+		if !userKeys[d.name] {
+			envList = append(envList, map[string]interface{}{
+				"name":  d.name,
+				"value": d.value,
+			})
+		}
+	}
+
+	for _, e := range opts.Env {
+		parts := strings.SplitN(e, "=", 2)
+		k := strings.TrimSpace(parts[0])
+		if k == "" {
+			continue
+		}
+		v := ""
+		if len(parts) == 2 {
+			v = parts[1]
+		} else {
+			v = os.Getenv(k)
+		}
+		envList = append(envList, map[string]interface{}{
+			"name":  k,
+			"value": v,
+		})
 	}
 
 	containerObj := map[string]interface{}{
 		"name":  "main",
 		"image": opts.Image,
-		"env": []interface{}{
-			map[string]interface{}{"name": "LANG", "value": "C.UTF-8"},
-			map[string]interface{}{"name": "LC_ALL", "value": "C.UTF-8"},
-			map[string]interface{}{"name": "TERM", "value": "xterm-256color"},
-		},
+		"env":   envList,
 	}
 
 	if len(command) > 0 {
@@ -103,6 +155,14 @@ func CreateWithOptions(ctx context.Context, client *k8s.Client, opts CreateOptio
 			cmdSlice[i] = c
 		}
 		containerObj["command"] = cmdSlice
+	}
+
+	if len(args) > 0 {
+		argsSlice := make([]interface{}, len(args))
+		for i, a := range args {
+			argsSlice[i] = a
+		}
+		containerObj["args"] = argsSlice
 	}
 
 	if opts.Stdin {
