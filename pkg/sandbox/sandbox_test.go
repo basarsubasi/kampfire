@@ -48,7 +48,7 @@ func TestFormatAge(t *testing.T) {
 	}
 }
 
-func TestCreateNoCommandDefaultsToContainerEntrypoint(t *testing.T) {
+func TestCreateDefaultKeepAliveCommand(t *testing.T) {
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClient(scheme)
 	fakeK8s := k8sfake.NewSimpleClientset()
@@ -59,7 +59,7 @@ func TestCreateNoCommandDefaultsToContainerEntrypoint(t *testing.T) {
 		Namespace: "default",
 	}
 
-	// 1. When command is nil, command should be omitted so container runs its own entrypoint/cmd
+	// 1. When command is nil, command should default to tail -f /dev/null keep-alive
 	info, err := Create(context.Background(), client, "test-box", "alpine", nil)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
@@ -68,6 +68,7 @@ func TestCreateNoCommandDefaultsToContainerEntrypoint(t *testing.T) {
 		t.Errorf("expected name test-box, got %s", info.Name)
 	}
 
+	// Verify the created unstructured object has tail -f /dev/null and NOT sleep infinity
 	obj, err := dynClient.Resource(SandboxGVR).Namespace("default").Get(context.Background(), "test-box", metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("failed to retrieve created Sandbox: %v", err)
@@ -79,9 +80,13 @@ func TestCreateNoCommandDefaultsToContainerEntrypoint(t *testing.T) {
 	}
 
 	cMap := containers[0].(map[string]interface{})
-	_, cmdFound, _ := unstructured.NestedSlice(cMap, "command")
-	if cmdFound {
-		t.Errorf("expected command to be omitted when nil so container uses its own entrypoint/cmd, but found command field")
+	cmds, found, _ := unstructured.NestedSlice(cMap, "command")
+	if !found || len(cmds) != 3 {
+		t.Fatalf("expected 3 command arguments, got %v", cmds)
+	}
+
+	if cmds[0] != "tail" || cmds[1] != "-f" || cmds[2] != "/dev/null" {
+		t.Errorf("expected ['tail', '-f', '/dev/null'], got %v", cmds)
 	}
 
 	// Verify stdin and tty are omitted by default when not specified
@@ -150,6 +155,26 @@ func TestCreateNoCommandDefaultsToContainerEntrypoint(t *testing.T) {
 	}
 	if tty, ok := customCMap["tty"].(bool); !ok || !tty {
 		t.Errorf("expected tty=true when specified, got %v", customCMap["tty"])
+	}
+
+	// 3. When NoKeepAlive is true and command is nil, command should be omitted from container spec
+	optsNoKeepAlive := CreateOptions{
+		Name:        "nokeepalive-box",
+		Image:       "alpine",
+		NoKeepAlive: true,
+	}
+	infoNoKeepAlive, err := CreateWithOptions(context.Background(), client, optsNoKeepAlive)
+	if err != nil {
+		t.Fatalf("CreateWithOptions failed: %v", err)
+	}
+	objNoKeepAlive, err := dynClient.Resource(SandboxGVR).Namespace("default").Get(context.Background(), infoNoKeepAlive.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to retrieve nokeepalive Sandbox: %v", err)
+	}
+	nkaContainers, _, _ := unstructured.NestedSlice(objNoKeepAlive.Object, "spec", "podTemplate", "spec", "containers")
+	nkaCMap := nkaContainers[0].(map[string]interface{})
+	if _, foundCmd := nkaCMap["command"]; foundCmd {
+		t.Errorf("expected command to be omitted when NoKeepAlive is true, got: %v", nkaCMap["command"])
 	}
 }
 

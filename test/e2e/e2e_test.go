@@ -1506,52 +1506,41 @@ func TestE2E_UTF8LocaleAndSpecialCharacters(t *testing.T) {
 	}
 }
 
-// TestE2E_NoCommandDefaultsToImageEntrypoint verifies that when no command is provided,
-// the command field is omitted from the container spec so it defaults to the image's entrypoint/cmd,
-// and is properly set when an explicit command is specified.
-func TestE2E_NoCommandDefaultsToImageEntrypoint(t *testing.T) {
+// TestE2E_NoKeepAliveFlag verifies that without --no-keepalive, sandboxes default to tail -f /dev/null,
+// and with --no-keepalive, the command field is omitted from the container spec so the image entrypoint/cmd is used.
+func TestE2E_NoKeepAliveFlag(t *testing.T) {
 	t.Parallel()
 	ns := setupNamespace(t)
 
-	// 1. Launch sandbox without command: command field must be omitted from container spec
-	boxDefault := "entrypoint-default-box"
+	// 1. Launch default sandbox: command must be populated with tail -f /dev/null keep-alive
+	boxDefault := "keepalive-default-box"
 	out, err := runKampfire(t, "-n", ns, "run", "--name", boxDefault, "--image", "alpine", "-d")
 	if err != nil {
-		t.Fatalf("failed to run sandbox without command: %s (err: %v)", out, err)
+		t.Fatalf("expected default sandbox to start with keep-alive: %s (err: %v)", out, err)
 	}
 
 	cmdCheck := exec.Command("kubectl", "get", "sandbox", boxDefault, "-n", ns, "-o", `jsonpath={.spec.podTemplate.spec.containers[0].command}`)
 	cmdOut, err := cmdCheck.CombinedOutput()
-	if err != nil {
-		t.Errorf("failed to get container command: %s (err: %v)", string(cmdOut), err)
-	} else if len(strings.TrimSpace(string(cmdOut))) > 0 {
-		t.Errorf("expected container command to be omitted when no command is given, got: %s", string(cmdOut))
+	if err != nil || !strings.Contains(string(cmdOut), "tail") {
+		t.Errorf("expected default sandbox to have tail keep-alive command in spec, got: %s (err: %v)", string(cmdOut), err)
 	}
 
-	// Verify stdin and tty are omitted by default
-	stdinCheck := exec.Command("kubectl", "get", "sandbox", boxDefault, "-n", ns, "-o", `jsonpath={.spec.podTemplate.spec.containers[0].stdin}`)
-	stdinOut, _ := stdinCheck.CombinedOutput()
-	if strings.TrimSpace(string(stdinOut)) == "true" {
-		t.Errorf("expected stdin to be omitted by default, got true")
+	// 2. Launch with --no-keepalive: command must be omitted from container spec
+	boxNKA := "no-keepalive-box"
+	out, err = runKampfire(t, "-n", ns, "run", "--name", boxNKA, "--image", "alpine", "--no-keepalive", "-d")
+
+	// Verify command is omitted from the Sandbox custom resource spec
+	cmdCheckNKA := exec.Command("kubectl", "get", "sandbox", boxNKA, "-n", ns, "-o", `jsonpath={.spec.podTemplate.spec.containers[0].command}`)
+	cmdOutNKA, _ := cmdCheckNKA.CombinedOutput()
+	if len(strings.TrimSpace(string(cmdOutNKA))) > 0 {
+		t.Errorf("expected container command to be omitted with --no-keepalive, got: %s", string(cmdOutNKA))
 	}
 
-	// 2. Launch sandbox with explicit command: command field must be populated
-	boxCustom := "entrypoint-custom-box"
-	customCmd := "echo custom-entrypoint; sleep 3600"
-	out, err = runKampfire(t, "-n", ns, "run", "--name", boxCustom, "--image", "alpine", "-d", "--", "sh", "-c", customCmd)
-	if err != nil {
-		t.Fatalf("failed to run sandbox with custom command: %s (err: %v)", out, err)
-	}
-
-	customCmdCheck := exec.Command("kubectl", "get", "sandbox", boxCustom, "-n", ns, "-o", `jsonpath={.spec.podTemplate.spec.containers[0].command}`)
-	customCmdOut, err := customCmdCheck.CombinedOutput()
-	if err != nil {
-		t.Errorf("failed to get custom container command: %s (err: %v)", string(customCmdOut), err)
-	} else if !strings.Contains(string(customCmdOut), "custom-entrypoint") {
-		t.Errorf("expected custom command in container spec, got: %s", string(customCmdOut))
+	// With native entrypoint (/bin/sh) and no attached terminal, alpine exits immediately into CrashLoopBackOff
+	if err == nil {
+		t.Logf("info: sandbox started before exit detection: %s", out)
+	} else if !strings.Contains(out, "CrashLoopBackOff") && !strings.Contains(out, "container failed to start") {
+		t.Errorf("expected alpine without keep-alive to encounter CrashLoopBackOff, got: %s", out)
 	}
 }
-
-
-
 

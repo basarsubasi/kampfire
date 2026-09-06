@@ -5,7 +5,7 @@ import (
 )
 
 func TestRunFlagsRegistration(t *testing.T) {
-	flags := []string{"cpu", "memory", "publish", "persist", "persist-size", "with-pull-secret"}
+	flags := []string{"cpu", "memory", "publish", "persist", "persist-size", "with-pull-secret", "no-keepalive"}
 	for _, f := range flags {
 		if runCmd.Flags().Lookup(f) == nil {
 			t.Errorf("expected flag --%s to be registered on runCmd", f)
@@ -24,8 +24,9 @@ func TestRunFlagsParsing(t *testing.T) {
 	runPersist = ""
 	runPersistSize = ""
 	runWithPullSecret = ""
+	runNoKeepAlive = false
 
-	args := []string{"--cpu", "500m", "--memory", "1Gi", "-p", "8080:80", "-p", "3000", "--persist", "/data", "--persist-size", "10Gi", "--with-pull-secret", "ghcr-creds"}
+	args := []string{"--cpu", "500m", "--memory", "1Gi", "-p", "8080:80", "-p", "3000", "--persist", "/data", "--persist-size", "10Gi", "--with-pull-secret", "ghcr-creds", "--no-keepalive"}
 	err := runCmd.ParseFlags(args)
 	if err != nil {
 		t.Fatalf("unexpected parse error: %v", err)
@@ -51,6 +52,9 @@ func TestRunFlagsParsing(t *testing.T) {
 	}
 	if runWithPullSecret != "ghcr-creds" {
 		t.Errorf("expected runWithPullSecret = ghcr-creds, got %s", runWithPullSecret)
+	}
+	if !runNoKeepAlive {
+		t.Errorf("expected runNoKeepAlive = true, got %v", runNoKeepAlive)
 	}
 }
 
@@ -85,6 +89,21 @@ func TestRunFlagsWithPullSecret(t *testing.T) {
 
 	if runWithPullSecret != "my-registry-secret" {
 		t.Errorf("expected runWithPullSecret = my-registry-secret, got %q", runWithPullSecret)
+	}
+}
+
+func TestRunFlagsNoKeepAlive(t *testing.T) {
+	resetFlags(RootCmd)
+	runNoKeepAlive = false
+
+	args := []string{"--no-keepalive"}
+	err := runCmd.ParseFlags(args)
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+
+	if !runNoKeepAlive {
+		t.Errorf("expected runNoKeepAlive = true, got %v", runNoKeepAlive)
 	}
 }
 

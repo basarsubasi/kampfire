@@ -61,6 +61,7 @@ type CreateOptions struct {
 	Name           string
 	Image          string
 	Command        []string
+	NoKeepAlive    bool
 	Stdin          bool
 	TTY            bool
 	CPU            string
@@ -78,6 +79,12 @@ func CreateWithOptions(ctx context.Context, client *k8s.Client, opts CreateOptio
 		name = GenerateName(opts.Image)
 	}
 
+	command := opts.Command
+	if len(command) == 0 && !opts.NoKeepAlive {
+		// Keep container alive indefinitely across all Linux distributions (Alpine, Debian, Ubuntu)
+		command = []string{"tail", "-f", "/dev/null"}
+	}
+
 	containerObj := map[string]interface{}{
 		"name":  "main",
 		"image": opts.Image,
@@ -88,19 +95,19 @@ func CreateWithOptions(ctx context.Context, client *k8s.Client, opts CreateOptio
 		},
 	}
 
+	if len(command) > 0 {
+		cmdSlice := make([]interface{}, len(command))
+		for i, c := range command {
+			cmdSlice[i] = c
+		}
+		containerObj["command"] = cmdSlice
+	}
+
 	if opts.Stdin {
 		containerObj["stdin"] = true
 	}
 	if opts.TTY {
 		containerObj["tty"] = true
-	}
-
-	if len(opts.Command) > 0 {
-		cmdSlice := make([]interface{}, len(opts.Command))
-		for i, c := range opts.Command {
-			cmdSlice[i] = c
-		}
-		containerObj["command"] = cmdSlice
 	}
 
 	// Resources: CPU and Memory
