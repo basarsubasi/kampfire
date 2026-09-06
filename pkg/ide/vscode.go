@@ -174,6 +174,21 @@ func ResolveContainerHome(ctx context.Context, client *k8s.Client, podName strin
 	return "/"
 }
 
+// envWithKubeconfig returns a copy of the current process environment with KUBECONFIG overridden.
+// If kubeconfigPath is empty, it returns nil so exec.Command uses standard environment inheritance.
+func envWithKubeconfig(kubeconfigPath string) []string {
+	if kubeconfigPath == "" {
+		return nil
+	}
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "KUBECONFIG=") {
+			env = append(env, e)
+		}
+	}
+	return append(env, fmt.Sprintf("KUBECONFIG=%s", kubeconfigPath))
+}
+
 // OpenVSCode handles connecting desktop VS Code via kubectl exec, or browser mode via code-server.
 func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInBrowser bool) error {
 	if openInBrowser {
@@ -186,11 +201,22 @@ func OpenVSCode(ctx context.Context, client *k8s.Client, podName string, openInB
 
 	ui.Info("Working Directory: %s", ui.TitleStyle.Render(homeDir))
 	ui.Info("Connection URI:    %s", ui.TitleStyle.Render(uri))
+	var kubeconfigPath string
+	if client != nil {
+		kubeconfigPath = client.KubeconfigPath
+	}
+	if kubeconfigPath != "" {
+		ui.Info("Kubeconfig:        %s", ui.TitleStyle.Render(kubeconfigPath))
+	}
 
-	if err := OpenDesktopVSCode(uri); err != nil {
+	if err := OpenDesktopVSCode(uri, kubeconfigPath); err != nil {
 		ui.Error("Could not launch 'code' binary in PATH (%v).", err)
 		ui.Info("You can connect manually:")
-		ui.Info("  code --folder-uri %s", uri)
+		if kubeconfigPath != "" {
+			ui.Info("  KUBECONFIG=%s code --folder-uri %s", kubeconfigPath, uri)
+		} else {
+			ui.Info("  code --folder-uri %s", uri)
+		}
 		return nil
 	}
 	ui.Success("Desktop VS Code launched.")
@@ -209,11 +235,22 @@ func OpenAntigravity(ctx context.Context, client *k8s.Client, podName string, op
 
 	ui.Info("Working Directory: %s", ui.TitleStyle.Render(homeDir))
 	ui.Info("Connection URI:    %s", ui.TitleStyle.Render(uri))
+	var kubeconfigPath string
+	if client != nil {
+		kubeconfigPath = client.KubeconfigPath
+	}
+	if kubeconfigPath != "" {
+		ui.Info("Kubeconfig:        %s", ui.TitleStyle.Render(kubeconfigPath))
+	}
 
-	if err := OpenDesktopAntigravity(uri); err != nil {
+	if err := OpenDesktopAntigravity(uri, kubeconfigPath); err != nil {
 		ui.Error("Could not launch 'antigravity-ide' binary in PATH (%v).", err)
 		ui.Info("You can connect manually:")
-		ui.Info("  antigravity-ide --folder-uri %s", uri)
+		if kubeconfigPath != "" {
+			ui.Info("  KUBECONFIG=%s antigravity-ide --folder-uri %s", kubeconfigPath, uri)
+		} else {
+			ui.Info("  antigravity-ide --folder-uri %s", uri)
+		}
 		return nil
 	}
 	ui.Success("Antigravity IDE launched.")
@@ -221,10 +258,14 @@ func OpenAntigravity(ctx context.Context, client *k8s.Client, podName string, op
 }
 
 // OpenDesktopVSCode launches the desktop VS Code application with the given folder URI.
-func OpenDesktopVSCode(uri string) error {
+func OpenDesktopVSCode(uri, kubeconfigPath string) error {
 	// 1. If "code" CLI is in PATH, try launching directly
 	if codePath, err := exec.LookPath("code"); err == nil {
-		if err := exec.Command(codePath, "--folder-uri", uri).Start(); err == nil {
+		cmd := exec.Command(codePath, "--folder-uri", uri)
+		if env := envWithKubeconfig(kubeconfigPath); env != nil {
+			cmd.Env = env
+		}
+		if err := cmd.Start(); err == nil {
 			return nil
 		}
 	}
@@ -232,10 +273,14 @@ func OpenDesktopVSCode(uri string) error {
 }
 
 // OpenDesktopAntigravity launches the Antigravity IDE desktop application with the given folder URI.
-func OpenDesktopAntigravity(uri string) error {
+func OpenDesktopAntigravity(uri, kubeconfigPath string) error {
 	// 1. Check if antigravity-ide is available in PATH
 	if binPath, err := exec.LookPath("antigravity-ide"); err == nil {
-		if err := exec.Command(binPath, "--folder-uri", uri).Start(); err == nil {
+		cmd := exec.Command(binPath, "--folder-uri", uri)
+		if env := envWithKubeconfig(kubeconfigPath); env != nil {
+			cmd.Env = env
+		}
+		if err := cmd.Start(); err == nil {
 			return nil
 		}
 	}

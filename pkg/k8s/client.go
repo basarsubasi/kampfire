@@ -20,11 +20,12 @@ import (
 
 // Client encapsulates Kubernetes access for Campfire.
 type Client struct {
-	RestConfig *rest.Config
-	Clientset  kubernetes.Interface
-	Dynamic    dynamic.Interface
-	Namespace  string
-	Context    string
+	RestConfig     *rest.Config
+	Clientset      kubernetes.Interface
+	Dynamic        dynamic.Interface
+	Namespace      string
+	Context        string
+	KubeconfigPath string
 }
 
 // NewClient creates a new Client based on the Kampfire configuration and optional CLI namespace override.
@@ -68,12 +69,20 @@ func NewClient(cfg *config.Config, namespaceOverride string) (*Client, error) {
 		currentContext = raw.CurrentContext
 	}
 
+	var kubeconfigPath string
+	if loadingRules.ExplicitPath != "" {
+		kubeconfigPath = loadingRules.ExplicitPath
+	} else if cfg != nil && cfg.KubeconfigPath != "" {
+		kubeconfigPath = cfg.KubeconfigPath
+	}
+
 	return &Client{
-		RestConfig: restConfig,
-		Clientset:  cs,
-		Dynamic:    dyn,
-		Namespace:  ns,
-		Context:    currentContext,
+		RestConfig:     restConfig,
+		Clientset:      cs,
+		Dynamic:        dyn,
+		Namespace:      ns,
+		Context:        currentContext,
+		KubeconfigPath: kubeconfigPath,
 	}, nil
 }
 

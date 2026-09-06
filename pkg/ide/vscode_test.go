@@ -127,3 +127,35 @@ func TestBuildK8sContainerURI(t *testing.T) {
 	}
 }
 
+func TestEnvWithKubeconfig(t *testing.T) {
+	// 1. Empty kubeconfig path should return nil (standard environment inheritance)
+	if env := envWithKubeconfig(""); env != nil {
+		t.Errorf("expected nil for empty kubeconfigPath, got %v", env)
+	}
+
+	// 2. Non-empty path should include KUBECONFIG=<path> and override any prior KUBECONFIG
+	t.Setenv("KUBECONFIG", "/old/path.yaml")
+	env := envWithKubeconfig("/new/custom/path.yaml")
+	if env == nil {
+		t.Fatalf("expected non-nil environment slice")
+	}
+
+	var foundNew bool
+	var countKubeconfig int
+	for _, e := range env {
+		if strings.HasPrefix(e, "KUBECONFIG=") {
+			countKubeconfig++
+			if e == "KUBECONFIG=/new/custom/path.yaml" {
+				foundNew = true
+			}
+		}
+	}
+
+	if !foundNew {
+		t.Errorf("expected KUBECONFIG=/new/custom/path.yaml in environment, got %v", env)
+	}
+	if countKubeconfig != 1 {
+		t.Errorf("expected exactly 1 KUBECONFIG entry, found %d", countKubeconfig)
+	}
+}
+

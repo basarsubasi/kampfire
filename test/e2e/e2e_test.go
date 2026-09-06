@@ -1730,5 +1730,169 @@ func TestE2E_Run_EnvFlags(t *testing.T) {
 	}
 }
 
+// TestE2E_IDE_VSCodeKubeconfigInjection tests that 'kampfire ide vscode' correctly
+// injects the active kubeconfig into desktop IDE processes and output.
+// It verifies:
+// 1. KAMPFIRE_KUBECONFIG environment variable is passed to the spawned 'code' process.
+// 2. Kubeconfig from kampfire config file is passed when KAMPFIRE_KUBECONFIG is unset.
+// 3. Fallback manual instructions format 'KUBECONFIG=<path> code --folder-uri <uri>' when code binary is missing.
+// 4. 'kampfire ide code' alias functions identically.
+func TestE2E_IDE_VSCodeKubeconfigInjection(t *testing.T) {
+	t.Parallel()
+	ns := setupNamespace(t)
+	boxName := "ide-vscode-test-box"
+
+	// 1. Launch a sandbox
+	runOut, err := runKampfire(t, "-n", ns, "run", "--name", boxName, "--image", "alpine", "-d")
+	if err != nil {
+		t.Fatalf("failed to launch sandbox: %s (err: %v)", runOut, err)
+	}
+
+	tempDir := t.TempDir()
+	mockBinDir := filepath.Join(tempDir, "bin")
+	if err := os.MkdirAll(mockBinDir, 0755); err != nil {
+		t.Fatalf("failed to create mock bin dir: %v", err)
+	}
+
+	capturedKubeconfig := filepath.Join(tempDir, "captured_kubeconfig.txt")
+	capturedArgs := filepath.Join(tempDir, "captured_args.txt")
+
+	// Create a mock 'code' script that records the $KUBECONFIG environment variable and CLI arguments
+	mockCodePath := filepath.Join(mockBinDir, "code")
+	mockScript := fmt.Sprintf("#!/bin/sh\nprintf \"%%s\" \"$KUBECONFIG\" > %q\nprintf \"%%s\" \"$*\" > %q\nexit 0\n", capturedKubeconfig, capturedArgs)
+	if err := os.WriteFile(mockCodePath, []byte(mockScript), 0755); err != nil {
+		t.Fatalf("failed to write mock code script: %v", err)
+	}
+
+	currentKubeconfig := os.Getenv("KAMPFIRE_KUBECONFIG")
+	if currentKubeconfig == "" {
+		currentKubeconfig = os.Getenv("KUBECONFIG")
+	}
+	if currentKubeconfig == "" {
+		home, _ := os.UserHomeDir()
+		currentKubeconfig = filepath.Join(home, ".kube", "config")
+	}
+
+	customKubePath := filepath.Join(tempDir, "custom-kampfire-kubeconfig.yaml")
+	kubeData, err := os.ReadFile(currentKubeconfig)
+	if err != nil {
+		t.Fatalf("failed to read active kubeconfig: %v", err)
+	}
+	if err := os.WriteFile(customKubePath, kubeData, 0600); err != nil {
+		t.Fatalf("failed to copy custom kubeconfig: %v", err)
+	}
+
+	// 2. Test Case 1: KAMPFIRE_KUBECONFIG environment variable takes precedence and is injected into mock 'code'
+	envWithMock := []string{
+		"PATH=" + mockBinDir + ":" + os.Getenv("PATH"),
+		"KAMPFIRE_KUBECONFIG=" + customKubePath,
+	}
+	ideOut, err := runKampfireWithEnv(t, envWithMock, "-n", ns, "ide", "vscode", boxName)
+	if err != nil {
+		t.Fatalf("kampfire ide vscode failed: %s (err: %v)", ideOut, err)
+	}
+
+	// Verify CLI feedback
+	if !strings.Contains(ideOut, "Connecting to sandbox") || !strings.Contains(ideOut, boxName) {
+		t.Errorf("expected connecting message in output, got: %s", ideOut)
+	}
+	if !strings.Contains(ideOut, "Connection URI:") || !strings.Contains(ideOut, "vscode-remote://k8s-container+") {
+		t.Errorf("expected vscode-remote URI in output, got: %s", ideOut)
+	}
+	if !strings.Contains(ideOut, "Kubeconfig:") || !strings.Contains(ideOut, customKubePath) {
+		t.Errorf("expected Kubeconfig: %s in output, got: %s", customKubePath, ideOut)
+	}
+	if !strings.Contains(ideOut, "Desktop VS Code launched.") {
+		t.Errorf("expected launch success message, got: %s", ideOut)
+	}
+
+	// Verify mock 'code' process received KUBECONFIG=<customKubePath> and proper URI argument
+	var injectedKube string
+	var injectedArgs string
+	for i := 0; i < 30; i++ {
+		if data, err := os.ReadFile(capturedKubeconfig); err == nil && len(data) > 0 {
+			injectedKube = string(data)
+			if argsData, err := os.ReadFile(capturedArgs); err == nil {
+				injectedArgs = string(argsData)
+			}
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if injectedKube != customKubePath {
+		t.Errorf("expected mock code to receive injected KUBECONFIG=%q, got %q", customKubePath, injectedKube)
+	}
+	if !strings.Contains(injectedArgs, "--folder-uri") || !strings.Contains(injectedArgs, "vscode-remote://k8s-container+") {
+		t.Errorf("expected mock code args to contain '--folder-uri' and URI, got: %s", injectedArgs)
+	}
+
+	// 3. Test Case 2: Config file kubeconfig_path injection when KAMPFIRE_KUBECONFIG is unset
+	_ = os.Remove(capturedKubeconfig)
+	_ = os.Remove(capturedArgs)
+
+	tempConfigJson := filepath.Join(tempDir, "config.json")
+	configCustomKube := filepath.Join(tempDir, "from-config-kube.yaml")
+	if err := os.WriteFile(configCustomKube, kubeData, 0600); err != nil {
+		t.Fatalf("failed to write config custom kubeconfig: %v", err)
+	}
+
+	setOut, err := runKampfire(t, "config", "set", "--kubeconfig", configCustomKube, "--config", tempConfigJson)
+	if err != nil {
+		t.Fatalf("failed to set kubeconfig in config file: %s (err: %v)", setOut, err)
+	}
+
+	envWithConfigOnly := []string{
+		"PATH=" + mockBinDir + ":" + os.Getenv("PATH"),
+		"KAMPFIRE_KUBECONFIG=", // Unset env var so config.json is used
+	}
+	ideCfgOut, err := runKampfireWithEnv(t, envWithConfigOnly, "--config", tempConfigJson, "-n", ns, "ide", "vscode", boxName)
+	if err != nil {
+		t.Fatalf("kampfire ide vscode with config file failed: %s (err: %v)", ideCfgOut, err)
+	}
+
+	injectedKube = ""
+	for i := 0; i < 30; i++ {
+		if data, err := os.ReadFile(capturedKubeconfig); err == nil && len(data) > 0 {
+			injectedKube = string(data)
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if injectedKube != configCustomKube {
+		t.Errorf("expected mock code to receive KUBECONFIG=%q from config.json, got %q", configCustomKube, injectedKube)
+	}
+
+	// 4. Test Case 3: When 'code' binary is not in PATH, fallback instructions include KUBECONFIG
+	envNoCode := []string{
+		"PATH=/dev/null",
+		"KAMPFIRE_KUBECONFIG=" + customKubePath,
+	}
+	noCodeOut, err := runKampfireWithEnv(t, envNoCode, "-n", ns, "ide", "vscode", boxName)
+	if err != nil {
+		t.Fatalf("expected kampfire ide vscode to handle missing binary gracefully, got error: %v", err)
+	}
+	if !strings.Contains(noCodeOut, "Could not launch 'code' binary in PATH") {
+		t.Errorf("expected error notification about missing code binary, got: %s", noCodeOut)
+	}
+	expectedManualCmd := fmt.Sprintf("KUBECONFIG=%s code --folder-uri", customKubePath)
+	if !strings.Contains(noCodeOut, expectedManualCmd) {
+		t.Errorf("expected manual instruction to include %q, got: %s", expectedManualCmd, noCodeOut)
+	}
+
+	// 5. Test Case 4: Verify 'kampfire ide code' alias also works
+	envAlias := []string{
+		"PATH=" + mockBinDir + ":" + os.Getenv("PATH"),
+		"KAMPFIRE_KUBECONFIG=" + customKubePath,
+	}
+	aliasOut, err := runKampfireWithEnv(t, envAlias, "-n", ns, "ide", "code", boxName)
+	if err != nil {
+		t.Fatalf("kampfire ide code alias failed: %s (err: %v)", aliasOut, err)
+	}
+	if !strings.Contains(aliasOut, "Desktop VS Code launched.") {
+		t.Errorf("expected ide code alias to succeed, got: %s", aliasOut)
+	}
+}
+
 
 
