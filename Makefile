@@ -5,7 +5,7 @@ GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 
 build:
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o bin/kampfire-$(VERSION)-$(GOOS)-$(GOARCH) .
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-s -w" -o bin/kampfire-$(VERSION)-$(GOOS)-$(GOARCH) .
 
 test:
 	go test -v ./pkg/... ./cmd/...

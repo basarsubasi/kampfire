@@ -54,7 +54,7 @@ echo "==> Waiting for agent-sandbox-controller to be ready..."
 kubectl wait --for=condition=Available deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
 
 echo "==> Building campfire binary..."
-go build -o bin/kampfire .
+go build -ldflags="-s -w" -o bin/kampfire .
 
 echo "==> Executing E2E Test Suite in Parallel..."
 go test -v -parallel 8 -timeout 10m ./test/e2e/...
